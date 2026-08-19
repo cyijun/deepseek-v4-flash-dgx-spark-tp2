@@ -346,7 +346,7 @@ if [[ -n "$PROFILE_DIR" ]]; then
 fi
 
 # Invoked indirectly through the EXIT trap below.
-# shellcheck disable=SC2329
+# shellcheck disable=SC2317,SC2329
 cleanup_on_error() {
   status=$?
   if ((status != 0)); then

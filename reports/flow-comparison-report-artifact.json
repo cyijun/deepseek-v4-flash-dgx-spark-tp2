@@ -1,0 +1,682 @@
+{
+  "surface": "report",
+  "manifest": {
+    "version": 1,
+    "surface": "report",
+    "title": "DeepSeek V4 Flash Runtime and Format Findings",
+    "description": "Code-, log-, profile-, and benchmark-backed comparison of Anemll 0.1.1, the vLLM 0.27 NVFP4/true-FP4 adaptation, and the latest official FP8/MXFP4 control on two DGX Sparks, including the first validated routing optimization.",
+    "generatedAt": "2026-08-19T22:00:00+08:00",
+    "cards": [
+      {
+        "id": "c6_gap",
+        "description": "Matched GuideLLM 256-to-256 aggregate output throughput at concurrency six.",
+        "dataset": "official_summary",
+        "sourceId": "reviewed_evidence",
+        "metrics": [
+          {
+            "label": "Official control, hot C6",
+            "field": "official_hot_c6_tps",
+            "format": "number",
+            "unit": "tok/s"
+          },
+          {
+            "label": "vs Anemll",
+            "field": "official_hot_vs_anemll",
+            "format": "percent",
+            "signed": true
+          }
+        ]
+      },
+      {
+        "id": "kv_footprint",
+        "description": "Physical storage per token behind Anemll's nvfp4_ds_mla cache name.",
+        "dataset": "official_summary",
+        "sourceId": "reviewed_evidence",
+        "metrics": [
+          {
+            "label": "Anemll physical KV row",
+            "field": "anemll_kv_bytes_per_token",
+            "format": "number",
+            "unit": "B/token"
+          }
+        ]
+      }
+    ],
+    "charts": [
+      {
+        "id": "official_control_comparison",
+        "title": "Official-checkpoint C6 output throughput",
+        "subtitle": "Hot 256-to-256 GuideLLM windows on 2× DGX Spark, TP=2; both paths use MXFP4 experts, B12X target and draft, and physical FP8 DS-MLA KV.",
+        "type": "bar",
+        "intent": "comparison",
+        "question": "How close is the current aligned official-checkpoint control to the recorded Anemll deployment?",
+        "rationale": "Two bars are the clearest view of the only matched hot C6 control; exact acceptance and latency decomposition remains in the adjacent table.",
+        "comparisonContext": {
+          "baseline": "Cached Anemll 0.1.1 deployment with the official DeepSeek-V4-Flash-0731 checkpoint",
+          "denominator": "GuideLLM time-weighted aggregate output tokens",
+          "grain": "one hot 60-second measured window per runtime at concurrency six",
+          "unit": "output tokens per second"
+        },
+        "dataset": "official_control",
+        "sourceId": "reviewed_evidence",
+        "encodings": {
+          "x": {
+            "field": "runtime",
+            "type": "nominal",
+            "label": "Runtime"
+          },
+          "y": {
+            "field": "output_tps",
+            "type": "quantitative",
+            "label": "Aggregate output throughput",
+            "format": "number"
+          },
+          "tooltip": [
+            {
+              "field": "accepted_tokens_per_iteration",
+              "type": "quantitative",
+              "label": "Output tokens / target iteration",
+              "format": "number"
+            },
+            {
+              "field": "iteration_time_ms",
+              "type": "quantitative",
+              "label": "Estimated target-iteration time",
+              "format": "number"
+            }
+          ]
+        },
+        "palette": {
+          "kind": "categorical"
+        },
+        "labels": {
+          "values": "auto"
+        },
+        "yAxisTitle": "Output tok/s",
+        "valueFormat": "number",
+        "layout": "full"
+      },
+      {
+        "id": "throughput_comparison",
+        "title": "Aggregate output throughput by concurrency and runtime",
+        "subtitle": "The current runtime loses both accepted tokens per iteration and raw iteration rate; the comparison is system-level, not a single-kernel A/B.",
+        "type": "bar",
+        "intent": "comparison",
+        "question": "How does the current true-FP4 deployment scale relative to the cached Anemll original-model deployment?",
+        "rationale": "Grouped bars expose the widening end-to-end gap at C4 and C6 while preserving the matched concurrency grain.",
+        "comparisonContext": {
+          "baseline": "Cached Anemll 0.1.1 deployment with the official DeepSeek-V4-Flash-0731 checkpoint",
+          "denominator": "GuideLLM time-weighted aggregate output tokens",
+          "grain": "one 60-second measured window per runtime and concurrency",
+          "unit": "output tokens per second"
+        },
+        "dataset": "throughput_long",
+        "sourceId": "reviewed_evidence",
+        "encodings": {
+          "x": {
+            "field": "concurrency",
+            "type": "ordinal",
+            "label": "Concurrent streams"
+          },
+          "y": {
+            "field": "output_tps",
+            "type": "quantitative",
+            "label": "Aggregate output throughput",
+            "format": "number"
+          },
+          "color": {
+            "field": "runtime",
+            "type": "nominal",
+            "label": "Runtime"
+          },
+          "tooltip": [
+            {
+              "field": "accepted_tokens_per_iteration",
+              "type": "quantitative",
+              "label": "Accepted tokens / iteration",
+              "format": "number"
+            },
+            {
+              "field": "iterations_per_second",
+              "type": "quantitative",
+              "label": "Iterations / second",
+              "format": "number"
+            }
+          ]
+        },
+        "palette": {
+          "kind": "categorical"
+        },
+        "legend": {
+          "interactive": true,
+          "position": "bottom",
+          "sort": "spec",
+          "title": "Runtime"
+        },
+        "labels": {
+          "values": "auto"
+        },
+        "yAxisTitle": "Output tok/s",
+        "valueFormat": "number",
+        "layout": "full"
+      }
+    ],
+    "tables": [
+      {
+        "id": "official_control_detail",
+        "title": "Official-checkpoint hot C6 benchmark detail",
+        "subtitle": "256 prompt tokens to 256 output tokens; 10-second warmup and 60-second measured window; no request errors.",
+        "dataset": "official_control",
+        "sourceId": "reviewed_evidence",
+        "defaultSort": {
+          "field": "runtime",
+          "direction": "asc"
+        },
+        "density": "spacious",
+        "layout": "full",
+        "columns": [
+          {
+            "field": "runtime",
+            "label": "Runtime"
+          },
+          {
+            "field": "output_tps",
+            "label": "Output tok/s",
+            "format": "number"
+          },
+          {
+            "field": "accepted_tokens_per_iteration",
+            "label": "Output tok/target iter",
+            "format": "number"
+          },
+          {
+            "field": "iteration_time_ms",
+            "label": "Target iter, ms",
+            "format": "number"
+          },
+          {
+            "field": "tpot_ms",
+            "label": "Mean TPOT, ms",
+            "format": "number"
+          },
+          {
+            "field": "ttft_ms",
+            "label": "Mean TTFT, ms",
+            "format": "number"
+          }
+        ]
+      },
+      {
+        "id": "flow_matrix",
+        "title": "Inference-flow implementation matrix",
+        "subtitle": "Differences verified from cached image source, checkpoint config, launch configuration, and runtime logs.",
+        "dataset": "flow_matrix",
+        "sourceId": "reviewed_evidence",
+        "defaultSort": {
+          "field": "order",
+          "direction": "asc"
+        },
+        "density": "spacious",
+        "layout": "full",
+        "columns": [
+          {
+            "field": "order",
+            "label": "#",
+            "format": "number"
+          },
+          {
+            "field": "stage",
+            "label": "Stage"
+          },
+          {
+            "field": "anemll",
+            "label": "Anemll original"
+          },
+          {
+            "field": "current",
+            "label": "Current NVFP4 adaptation"
+          },
+          {
+            "field": "impact",
+            "label": "Likely consequence"
+          },
+          {
+            "field": "confidence",
+            "label": "Evidence level"
+          }
+        ]
+      },
+      {
+        "id": "performance_detail",
+        "title": "Matched GuideLLM throughput and speculative-decoding decomposition",
+        "subtitle": "256 prompt tokens to 256 output tokens; GuideLLM 0.7.2; 10-second warmup and 60-second measurement.",
+        "dataset": "performance",
+        "sourceId": "reviewed_evidence",
+        "defaultSort": {
+          "field": "concurrency",
+          "direction": "asc"
+        },
+        "density": "spacious",
+        "layout": "full",
+        "columns": [
+          {
+            "field": "concurrency",
+            "label": "C",
+            "format": "number"
+          },
+          {
+            "field": "current_output_tps",
+            "label": "Current tok/s",
+            "format": "number"
+          },
+          {
+            "field": "anemll_output_tps",
+            "label": "Anemll tok/s",
+            "format": "number"
+          },
+          {
+            "field": "current_vs_anemll",
+            "label": "Current vs Anemll",
+            "format": "percent",
+            "movement": true
+          },
+          {
+            "field": "current_accepted_tokens_per_iteration",
+            "label": "Current accepted tok/iter",
+            "format": "number"
+          },
+          {
+            "field": "anemll_accepted_tokens_per_iteration",
+            "label": "Anemll accepted tok/iter",
+            "format": "number"
+          },
+          {
+            "field": "current_iterations_per_second",
+            "label": "Current iter/s",
+            "format": "number"
+          },
+          {
+            "field": "anemll_iterations_per_second",
+            "label": "Anemll iter/s",
+            "format": "number"
+          }
+        ]
+      },
+      {
+        "id": "aligned_decode_profile",
+        "title": "Phase-aligned decode kernel profile",
+        "subtitle": "Average CUDA duration per kernel call on rank 0, restricted to decode grids shared by both traces. Lower is better; profiler overhead means absolute values are diagnostic rather than production latency.",
+        "dataset": "aligned_decode_profile",
+        "sourceId": "reviewed_evidence",
+        "defaultSort": {
+          "field": "order",
+          "direction": "asc"
+        },
+        "density": "spacious",
+        "layout": "full",
+        "columns": [
+          {
+            "field": "order",
+            "label": "#",
+            "format": "number"
+          },
+          {
+            "field": "component",
+            "label": "Decode component"
+          },
+          {
+            "field": "current_us",
+            "label": "Current, µs/call",
+            "format": "number"
+          },
+          {
+            "field": "anemll_us",
+            "label": "Anemll, µs/call",
+            "format": "number"
+          },
+          {
+            "field": "current_vs_anemll",
+            "label": "Current vs Anemll",
+            "format": "percent",
+            "movement": true
+          },
+          {
+            "field": "note",
+            "label": "Scope"
+          }
+        ]
+      },
+      {
+        "id": "routing_microbenchmark",
+        "title": "Fused shared-expert routing microbenchmark",
+        "subtitle": "SM121 CUDA-event time for DeepSeek-V4 top-6 routing plus one shared expert. The optimized kernel writes the seventh slot directly instead of launching two torch.cat kernels.",
+        "dataset": "routing_microbenchmark",
+        "sourceId": "reviewed_evidence",
+        "defaultSort": {
+          "field": "tokens",
+          "direction": "asc"
+        },
+        "density": "spacious",
+        "layout": "full",
+        "columns": [
+          {
+            "field": "tokens",
+            "label": "Tokens",
+            "format": "number"
+          },
+          {
+            "field": "cat_path_ms",
+            "label": "Top-k + cats, ms",
+            "format": "number"
+          },
+          {
+            "field": "fused_path_ms",
+            "label": "Fused output, ms",
+            "format": "number"
+          },
+          {
+            "field": "reduction",
+            "label": "Latency reduction",
+            "format": "percent"
+          }
+        ]
+      }
+    ],
+    "sources": [
+      {
+        "id": "reviewed_evidence",
+        "label": "Reviewed local code, configuration, logs, and benchmark evidence",
+        "path": "flow-comparison-report-artifact.json"
+      }
+    ],
+    "blocks": [
+      {
+        "id": "title",
+        "type": "markdown",
+        "body": "# DeepSeek V4 Flash Runtime and Format Findings\n\nAnemll 0.1.1, the vLLM 0.27 NVFP4/true-FP4 adaptation, and an aligned official FP8/MXFP4 control on 2× DGX Spark, TP=2."
+      },
+      {
+        "id": "executive_summary",
+        "type": "markdown",
+        "sourceId": "reviewed_evidence",
+        "body": "## Technical summary\n\n**Anemll's `nvfp4_ds_mla` name hides a physically FP8 KV cache.** Its DeepSeek-V4 path stores 448 bytes of FP8 NoPE KV, 128 bytes of BF16 RoPE, and 8 bytes of UE8M0 scales—**584 bytes per token**—then calls the FP8 insert op and FlashMLA with `is_fp8_kvcache=True`. It is not an NVFP4 or four-bit KV layout.\n\n**The latest official-checkpoint control reached 97.20 output tok/s at C6, 10.15% below Anemll's 108.18 tok/s.** Both paths now use the same official weight family, B12X W4A16 for target and draft, physical FP8 DS-MLA KV, probabilistic MTP-5, and low-thinking prompt policy. The remaining gap decomposes into 5.82% fewer output tokens per target iteration and 4.82% longer estimated target iterations.\n\n**The isolated draft expert path is aligned.** Cross-container layer-0 output was all-close, and current FlashInfer W4A16 was fractionally faster in the routed-M=36 layer microbenchmark. The residual is therefore end-to-end—acceptance, attention, scheduling, graph lifecycle, and runtime overhead—not evidence that the current draft expert GEMM is slower."
+      },
+      {
+        "id": "metrics",
+        "type": "metric-strip",
+        "cardIds": ["c6_gap", "kv_footprint"]
+      },
+      {
+        "id": "official_control_finding",
+        "type": "markdown",
+        "sourceId": "reviewed_evidence",
+        "body": "## The aligned official-checkpoint control closes most of the earlier gap\n\nThe canonical result is the second, hot GuideLLM run. The first run reached only **67.99 tok/s** because TileLang, Triton, and CuTeDSL compilation occurred inside its measured window; it is retained as cold-start evidence, not used for steady-state comparison. The hot run produced no new JIT messages and reached **97.20 tok/s**, versus **108.18 tok/s** in the Anemll record."
+      },
+      {
+        "id": "official_control_chart_block",
+        "type": "chart",
+        "chartId": "official_control_comparison",
+        "layout": "full"
+      },
+      {
+        "id": "official_control_definitions",
+        "type": "markdown",
+        "sourceId": "reviewed_evidence",
+        "body": "## The comparison matches the important model and serving dimensions\n\nBoth rows use the official revision `9e165c30…`, two DGX Sparks with TP=2, concurrency six, 256 input and 256 requested output tokens, a 10-second warmup, and a 60-second measured window. Current vLLM uses a fixed 6 GiB cache and a C6/4096 safety envelope. **Output tok/target iter** is GuideLLM's output-tokens-per-iteration metric; estimated target-iteration time is `output tok/iter × 6 ÷ aggregate output tok/s`. The current hot run completed 25 requests with five in flight at cutoff and zero errors; Anemll completed 27 with five in flight and zero errors."
+      },
+      {
+        "id": "official_control_table_block",
+        "type": "table",
+        "tableId": "official_control_detail",
+        "layout": "full"
+      },
+      {
+        "id": "flow_overview",
+        "type": "markdown",
+        "body": "## The earlier NVFP4/true-FP4 experiment remains a separate format study\n\n**Anemll original:** official MXFP4 experts → B12X W4A16 target and draft → physically FP8 fused DS-MLA cache insert → FlashMLA sparse attention → DSpark MTP-5 verification.\n\n**Earlier adaptation:** NVFP4 target experts → FlashInfer B12X W4A4 target; native MXFP4 MTP experts → Marlin draft → true four-bit KV pack into 288-byte rows → custom Triton FP4 sparse attention/dequant → DSpark MTP-5 verification. Its larger gap mixed model values, expert arithmetic, draft backend, KV format, and runtime, so it must not be read as an FP4-versus-FP8 hardware conclusion."
+      },
+      {
+        "id": "flow_table",
+        "type": "table",
+        "tableId": "flow_matrix",
+        "layout": "full"
+      },
+      {
+        "id": "moe_finding",
+        "type": "markdown",
+        "sourceId": "reviewed_evidence",
+        "body": "## The draft expert path now follows Anemll's B12X W4A16 strategy\n\nThe official control forces both target and MTP routed experts through FlashInfer B12X W4A16 and prewarms all reachable route-pack capacity buckets before CUDA graph capture. This replaces the earlier Marlin draft lane for the matched control.\n\nA cross-container official-checkpoint layer-0 comparison was numerically all-close (maximum absolute difference **0.0078125**, cosine similarity **0.9999766**). At routed `M=36`, current FlashInfer measured **4.250 ms** median versus **4.281 ms** for Anemll's older B12X package. The isolated draft expert implementation is therefore not slower in this check, although full serving lifecycles still differ."
+      },
+      {
+        "id": "phase_aligned_profile_finding",
+        "type": "markdown",
+        "sourceId": "reviewed_evidence",
+        "body": "## Phase alignment reverses the apparent kernel diagnosis\n\nThe first aggregate profile comparison was misleading because the current trace included **43 large prefill calls** while the Anemll trace began after prefill. For example, current `W4A16TopKSum` totaled 13.15 ms only because 43 grid-18096 prefill launches contributed 11.45 ms; at the shared decode grids its average was **5.24 µs**, versus **10.42 µs** for Anemll.\n\nAfter matching decode grids and comparing per-call averages, current is faster in B12X main MoE, top-k sum, MHC pre/post, sparse MLA decode, route prefix, and route sort. Only the small route post-prefix launch is slower in this table. Therefore the archived 10.15% GuideLLM gap cannot be assigned to the current B12X or MHC decode kernels from these traces; acceptance, scheduler/graph lifecycle, and benchmark-run conditions remain mixed."
+      },
+      {
+        "id": "aligned_decode_profile_table_block",
+        "type": "table",
+        "tableId": "aligned_decode_profile",
+        "layout": "full"
+      },
+      {
+        "id": "routing_optimization_finding",
+        "type": "markdown",
+        "sourceId": "reviewed_evidence",
+        "body": "## The verified optimization removes two shared-expert concatenations per MoE layer\n\nThe current router appended DeepSeek-V4's one shared expert to six routed experts with two `torch.cat` calls per MoE invocation. The trace contained **736 cat kernels for 368 B12X calls**. Commit `7e64417` uses the two spare lanes already present in `_dsv4_topk_kernel` to write up to two shared-expert IDs and weights directly, while preserving the generic cat fallback for other router shapes. Routed top-6 weights are still normalized before the constant shared weight is appended.\n\nOn SM121, the combined routing step fell from about **0.0303 ms to 0.0124 ms** across 6, 30, and 36 tokens—a stable **59%** microbenchmark reduction with bitwise-identical IDs and weights. This is roughly 0.8 ms of theoretical savings across target plus draft MoE calls per C6 iteration, not a claim of a 10% end-to-end gain."
+      },
+      {
+        "id": "routing_microbenchmark_table_block",
+        "type": "table",
+        "tableId": "routing_microbenchmark",
+        "layout": "full"
+      },
+      {
+        "id": "kv_finding",
+        "type": "markdown",
+        "sourceId": "reviewed_evidence",
+        "body": "## `nvfp4_ds_mla` is an API label, not a description of Anemll's stored KV bits\n\nThe cached Anemll code maps both `fp8_ds_mla` and `nvfp4_ds_mla` to `torch.uint8`. For DeepSeek-V4, the `nvfp4_ds_mla` branch reserves **584 bytes per token**: 448 FP8 NoPE bytes, 128 BF16 RoPE bytes, and 8 UE8M0 scale bytes. It calls `fused_deepseek_v4_qnorm_rope_kv_rope_quant_insert` and passes the cache to FlashMLA as FP8. There is no four-bit pack or dequant operation in that release path.\n\nThe separate true-FP4 adaptation stores 512 values as 256 packed FP4 bytes plus 32 block-scale bytes, or **288 bytes per token**, and uses a custom fused Triton attention kernel. That path is genuinely more compressed, but it is not what Anemll's `nvfp4_ds_mla` name denotes."
+      },
+      {
+        "id": "throughput_chart_block",
+        "type": "chart",
+        "chartId": "throughput_comparison",
+        "layout": "full"
+      },
+      {
+        "id": "performance_explanation",
+        "type": "markdown",
+        "sourceId": "reviewed_evidence",
+        "body": "## Lower draft acceptance explains only part of the measured gap\n\nThe current run accepts **13.0%–19.8% fewer tokens per target iteration** than the Anemll reference. Dividing output throughput by accepted tokens per iteration still leaves the current runtime's iteration rate **19.4%–33.2% lower**. The observed difference therefore contains both a speculation-quality component and a target/draft/attention execution-speed component."
+      },
+      {
+        "id": "performance_table_block",
+        "type": "table",
+        "tableId": "performance_detail",
+        "layout": "full"
+      },
+      {
+        "id": "other_differences",
+        "type": "markdown",
+        "body": "## Runtime lifecycle now dominates the remaining comparability limits\n\n- **Runtime lineage:** Anemll is based on vLLM 0.25.2.dev0 with an older PyTorch/Triton/CUTLASS/FlashInfer/B12X stack. The optimized image embeds vLLM commit `7e64417` and FlashInfer commit `6398edb`; compiler and scheduler changes prevent causal attribution from the 10.15% end-to-end gap alone.\n- **Graphs and warmup:** Current captures full decode shapes 5/6/12/24/25/30/36 and prewarms B12X route packing. The cold run still compiled additional prefill and fused-kernel specializations; the report therefore uses the second run as the existing steady result.\n- **Prompt policy:** The current `thinking=true, reasoning_effort=low` template renders byte-for-byte identically to Anemll's recorded low-thinking prompt.\n- **Memory policy:** Current fixes physical FP8 KV at 6 GiB, caps C6/4096, and enforces a 108 GiB cgroup, a 10 GiB host reserve, and a 512 MiB swap-growth stop. Attempts to boot the new image were safely stopped when head swap growth reached 654 MiB; no post-optimization full C6 result is reported.\n- **TP communication:** Decode collective timings moved in opposite directions between ranks, so the traces do not support a communication-regression claim. Multi-node vLLM also disables custom all-reduce and falls back to NCCL/PyNCCL."
+      },
+      {
+        "id": "priorities",
+        "type": "markdown",
+        "body": "## Next work should target end-to-end lifecycle and acceptance, not already-faster decode kernels\n\n1. Retain the fused shared-expert top-k change and measure its full C6 effect only when a safe startup stays below the swap-growth threshold.\n2. Build a phase-aligned end-to-end trace whose profiler begins after prefill on both runtimes; compare whole target iterations rather than aggregate kernel totals.\n3. Investigate the 5.82% acceptance gap with identical prompts, RNG policy, and target/draft numerics before trading kernel speed for precision.\n4. Treat true FP4 MLA KV as a separate feature with its own 288-byte layout and performance target; do not use Anemll's `nvfp4_ds_mla` alias as evidence of an existing FP4 baseline.\n5. Preserve TP=2, C6, 6 GiB KV, the 108 GiB cgroup, 10 GiB reserve, and swap-growth guard for every follow-up."
+      },
+      {
+        "id": "further_questions",
+        "type": "markdown",
+        "body": "## Questions that would change the next optimization choice\n\n- How much of the 7.7 ms target-iteration delta is sparse MLA attention versus model-runner and scheduler overhead?\n- Does matching Anemll's exact CUDA-graph capture lifecycle remove a measurable part of the gap on the current runtime?\n- Which bounded prefill shapes must be warmed so the first user-visible C6 run is free of compilation without reducing the 10 GiB memory reserve?"
+      },
+      {
+        "id": "limitations",
+        "type": "markdown",
+        "body": "## Evidence boundaries and robustness checks\n\nThe KV-layout classification is code-backed from the exact cached Anemll image. The archived hot throughput and acceptance values use matched GuideLLM 0.7.2 settings and the same two-node hardware; the existing current run additionally has server logs proving target/draft B12X selection, low-thinking defaults, route prewarm, no measured-window JIT, and no swap growth.\n\nThe profile comparison is now restricted to shared decode grids and per-call averages. Absolute profiler timings are inflated, the current profile contained seven target iterations plus prefill while Anemll contained eight decode iterations, and rank-local NCCL wait cannot be interpreted in isolation. The routing optimization has GPU unit tests and a single-device microbenchmark, but its full TP2 image did not reach health: the startup guard stopped it at 654 MiB head swap growth and all containers were removed. No post-optimization end-to-end throughput claim is made."
+      },
+      {
+        "id": "evidence",
+        "type": "markdown",
+        "body": "## Reviewed evidence\n\n- Cached images: `ghcr.io/anemll/dspark-vllm-gx10:0.1.1`, `infer-deploy/vllm:0.27.1-dsv4-nvfp4-ds-mla-sm121`, and optimized `infer-deploy/vllm:0.27.1-dsv4-nvfp4-ds-mla-sm121-fused-shared-topk`.\n- Optimized source payload: vLLM `7e64417e4af6d0079a0a9bfb999dd667f7263a58`, FlashInfer `6398edbbc6796d81781bd54827be860b65d8f38b`; both nodes contain matching SHA-256 hashes for the two changed router files.\n- Profile traces: `profiles/current-aligned-hot/` and `profiles/anemll-aligned-hot/`; TileLang control artifacts: `profiles/tilelang012-artifacts/` and `profiles/tilelang019-artifacts/`.\n- Routing microbenchmark: `benchmark_dsv4_shared_topk.py`; GPU tests: seven `dsv4_fast_topk` cases passed in the current image.\n- Official checkpoint revision: `9e165c30e2704aec5d9d593cce3eebd58bbef1cb`; NVFP4 revision: `4b15c44c31f8dacdf7b0c2fa42e20d03c5f5859b`.\n- Anemll formal benchmark: `benchmarks/guidellm/results/20260814T125500+0800/short-256x256.json`. Current official-checkpoint hot benchmark: `benchmarks/fp8-anemll-aligned/c6-thinking-low-prewarm-hot-short.json`.\n- Safety-stop diagnostics for the optimized image: `logs/20260818T154515+0800-*`."
+      }
+    ]
+  },
+  "snapshot": {
+    "version": 1,
+    "generatedAt": "2026-08-19T22:00:00+08:00",
+    "status": "ready",
+    "datasets": {
+      "summary": [
+        {
+          "current_c6_tps": 61.736616798378535,
+          "current_c6_vs_anemll": -0.42933510364865657,
+          "current_kv_bytes_per_token": 288,
+          "current_kv_bytes_reduction": -0.5068493150684932
+        }
+      ],
+      "official_summary": [
+        {
+          "official_hot_c6_tps": 97.20396158215175,
+          "official_hot_vs_anemll": -0.10149127798212132,
+          "official_acceptance_gap": -0.05815641312968911,
+          "official_iteration_time_gap": 0.048229765377358236,
+          "anemll_kv_bytes_per_token": 584
+        }
+      ],
+      "official_control": [
+        {"order": 1, "runtime": "Current vLLM 0.27.1, hot", "output_tps": 97.20396158215175, "accepted_tokens_per_iteration": 2.705948372615039, "iteration_time_ms": 167.0270426372352, "tpot_ms": 61.980380205038124, "ttft_ms": 743.5834487279255, "completed_requests": 25, "incomplete_requests": 5, "request_errors": 0, "measurement_state": "Hot; no new JIT log entries"},
+        {"order": 2, "runtime": "Anemll 0.1.1 reference", "output_tps": 108.18365943499163, "accepted_tokens_per_iteration": 2.873033707865168, "iteration_time_ms": 159.34201465563822, "tpot_ms": 55.67225743546011, "ttft_ms": 704.2856737971306, "completed_requests": 27, "incomplete_requests": 5, "request_errors": 0, "measurement_state": "Archived hot reference"}
+      ],
+      "throughput_long": [
+        {"concurrency": 1, "runtime": "Current true-FP4", "output_tps": 28.950856303614188, "accepted_tokens_per_iteration": 2.3705179282868527, "iterations_per_second": 12.212882239003632},
+        {"concurrency": 1, "runtime": "Anemll original", "output_tps": 41.26991839795751, "accepted_tokens_per_iteration": 2.7233009708737868, "iterations_per_second": 15.154372887663541},
+        {"concurrency": 2, "runtime": "Current true-FP4", "output_tps": 41.579833962439444, "accepted_tokens_per_iteration": 2.479557069846678, "iterations_per_second": 16.769057049778052},
+        {"concurrency": 2, "runtime": "Anemll original", "output_tps": 64.30259984361244, "accepted_tokens_per_iteration": 2.9286743515850144, "iterations_per_second": 21.956213673538517},
+        {"concurrency": 4, "runtime": "Current true-FP4", "output_tps": 51.21538447471522, "accepted_tokens_per_iteration": 2.4369747899159666, "iterations_per_second": 21.015968112038312},
+        {"concurrency": 4, "runtime": "Anemll original", "output_tps": 90.87452404234884, "accepted_tokens_per_iteration": 2.8875305623471887, "iterations_per_second": 31.471363533717756},
+        {"concurrency": 6, "runtime": "Current true-FP4", "output_tps": 61.736616798378535, "accepted_tokens_per_iteration": 2.323794382617912, "iterations_per_second": 26.567159840031994},
+        {"concurrency": 6, "runtime": "Anemll original", "output_tps": 108.18365943499163, "accepted_tokens_per_iteration": 2.895754359363153, "iterations_per_second": 37.35940484219243}
+      ],
+      "performance": [
+        {"concurrency": 1, "current_output_tps": 28.950856303614188, "anemll_output_tps": 41.26991839795751, "current_vs_anemll": -0.2984997928891714, "current_accepted_tokens_per_iteration": 2.3705179282868527, "anemll_accepted_tokens_per_iteration": 2.7233009708737868, "current_iterations_per_second": 12.212882239003632, "anemll_iterations_per_second": 15.154372887663541},
+        {"concurrency": 2, "current_output_tps": 41.579833962439444, "anemll_output_tps": 64.30259984361244, "current_vs_anemll": -0.3533724287421667, "current_accepted_tokens_per_iteration": 2.479557069846678, "anemll_accepted_tokens_per_iteration": 2.9286743515850144, "current_iterations_per_second": 16.769057049778052, "anemll_iterations_per_second": 21.956213673538517},
+        {"concurrency": 4, "current_output_tps": 51.21538447471522, "anemll_output_tps": 90.87452404234884, "current_vs_anemll": -0.4364164762959516, "current_accepted_tokens_per_iteration": 2.4369747899159666, "anemll_accepted_tokens_per_iteration": 2.8875305623471887, "current_iterations_per_second": 21.015968112038312, "anemll_iterations_per_second": 31.471363533717756},
+        {"concurrency": 6, "current_output_tps": 61.736616798378535, "anemll_output_tps": 108.18365943499163, "current_vs_anemll": -0.42933510364865657, "current_accepted_tokens_per_iteration": 2.323794382617912, "anemll_accepted_tokens_per_iteration": 2.895754359363153, "current_iterations_per_second": 26.567159840031994, "anemll_iterations_per_second": 37.35940484219243}
+      ],
+      "aligned_decode_profile": [
+        {
+          "order": 1,
+          "component": "B12X fused MoE main",
+          "current_us": 1453.309,
+          "anemll_us": 2142.967,
+          "current_vs_anemll": -0.321824,
+          "note": "Same C6 decode work; current persistent grid 48, Anemll grid 144"
+        },
+        {
+          "order": 2,
+          "component": "W4A16 top-k sum",
+          "current_us": 5.243,
+          "anemll_us": 10.419,
+          "current_vs_anemll": -0.496785,
+          "note": "Shared decode grid 576; excludes current's 43 large prefill calls"
+        },
+        {
+          "order": 3,
+          "component": "MHC post",
+          "current_us": 8.404,
+          "anemll_us": 17.701,
+          "current_vs_anemll": -0.525224,
+          "note": "Shared decode grid 36"
+        },
+        {
+          "order": 4,
+          "component": "MHC pre + norm",
+          "current_us": 5.3,
+          "anemll_us": 13.3,
+          "current_vs_anemll": -0.601504,
+          "note": "Shared decode grid 36"
+        },
+        {
+          "order": 5,
+          "component": "Sparse MLA decode",
+          "current_us": 48.571,
+          "anemll_us": 69.553,
+          "current_vs_anemll": -0.301668,
+          "note": "Shared decode grid 36"
+        },
+        {
+          "order": 6,
+          "component": "Route prefix",
+          "current_us": 18.041,
+          "anemll_us": 32.875,
+          "current_vs_anemll": -0.451224,
+          "note": "One program; same route-pack contract"
+        },
+        {
+          "order": 7,
+          "component": "Route post-prefix",
+          "current_us": 12.648,
+          "anemll_us": 10.208,
+          "current_vs_anemll": 0.239028,
+          "note": "Shared decode grid 9; only listed component slower in current"
+        },
+        {
+          "order": 8,
+          "component": "Route sort",
+          "current_us": 1.934,
+          "anemll_us": 4.395,
+          "current_vs_anemll": -0.559955,
+          "note": "One program; same route-pack contract"
+        }
+      ],
+      "routing_microbenchmark": [
+        {
+          "tokens": 6,
+          "cat_path_ms": 0.0304212646484375,
+          "fused_path_ms": 0.012376367568969726,
+          "reduction": -0.593169
+        },
+        {
+          "tokens": 30,
+          "cat_path_ms": 0.030335744857788085,
+          "fused_path_ms": 0.012340432167053222,
+          "reduction": -0.593213
+        },
+        {
+          "tokens": 36,
+          "cat_path_ms": 0.030648624420166016,
+          "fused_path_ms": 0.012378831863403321,
+          "reduction": -0.596102
+        }
+      ],
+      "flow_matrix": [
+        {"order": 1, "stage": "Checkpoint expert format", "anemll": "Official target + MTP experts are native MXFP4, K/32 UE8M0 scales", "current": "Target experts converted to ModelOpt NVFP4 K/16; mtp.* excluded and remains MXFP4", "impact": "No storage-size win: both checkpoint indexes report 166,878,536,440 bytes; arithmetic and kernel contracts change", "confidence": "Confirmed: checkpoint config/index"},
+        {"order": 2, "stage": "Target routed MoE", "anemll": "Dedicated b12x W4A16 with BF16 activations, in-place prepared weights, route-pack prewarm and bound scratch/plan", "current": "FlashInfer B12X W4A4; BF16 input is dynamically quantized to FP4 inside the kernel", "impact": "Anemll is tuned for tiny routed rows; current W4A4 adds quantization/dispatch overhead at decode-scale M", "confidence": "Confirmed path; performance contribution inferred"},
+        {"order": 3, "stage": "Draft routed MoE", "anemll": "Global flashinfer_b12x backend selects native-MXFP4 B12X W4A16", "current": "Explicit draft moe_backend=marlin; optional FlashInfer W4A16 path is available but is not integration-equivalent", "impact": "Current draft backend is an interim compatibility choice, not evidence that Marlin beats Anemll's B12X path", "confidence": "Confirmed: launch + backend oracle"},
+        {"order": 4, "stage": "Clamped SiLU", "anemll": "b12x plan receives swiglu_limit=10", "current": "Patched FlashInfer applies gate=min(gate,10), up=clamp(up,-10,10) before SiLU×up", "impact": "Current path now matches DeepSeek-V4 mathematical semantics; unclamped SiLU fast path remains intact", "confidence": "Confirmed: code + GPU numerical tests pending final rerun"},
+        {"order": 5, "stage": "Target KV physical layout", "anemll": "nvfp4_ds_mla name, but 584B/token FP8 DS-MLA envelope", "current": "True FP4: 256 packed data bytes + 32 block-scale bytes = 288B/token", "impact": "Current saves 50.7% per-token KV bytes but cannot reuse the mature FP8 FlashMLA path directly", "confidence": "Confirmed: exact cached image source"},
+        {"order": 6, "stage": "KV write", "anemll": "uint8 branch calls fused FP8 qnorm/RoPE/KV quant-insert op", "current": "Explicit Triton FP4 pack/store; DSpark context store uses the same true-FP4 layout", "impact": "Different quantization cost and numerical error profile", "confidence": "Confirmed: source"},
+        {"order": 7, "stage": "Sparse MLA decode", "anemll": "FlashMLA with is_fp8_kvcache=True", "current": "Custom fused Triton kernel dequantizes selected FP4 rows and performs attention", "impact": "Current kernel is newer and less tuned; likely a material part of iteration-rate gap", "confidence": "Confirmed path; magnitude not isolated"},
+        {"order": 8, "stage": "DSpark speculation", "anemll": "Probabilistic MTP-5 using checkpoint-native draft weights", "current": "Same method and k=5; target values differ and draft uses Marlin", "impact": "Current accepts 13.0%-19.8% fewer tokens per target iteration", "confidence": "Confirmed: matched GuideLLM metrics"},
+        {"order": 9, "stage": "CUDA graph policy", "anemll": "Normal full graph path through capture size 36", "current": "Full graphs for safe 6/24/30/36 shapes; exact size 12 forced eager", "impact": "Current C2 avoids harmful 12→24 padding but retains less graph coverage than the reference path", "confidence": "Confirmed current; Anemll external overrides unverified"},
+        {"order": 10, "stage": "Runtime stack", "anemll": "vLLM 0.25.2.dev0, torch 2.11, Triton 3.6, CUTLASS DSL 4.5.2, b12x 0.15.3", "current": "vLLM 0.27.2rc1, torch 2.13, Triton 3.7.1, CUTLASS DSL 4.6.0, b12x 1.2.4", "impact": "Compiler/runtime changes prevent causal attribution from end-to-end numbers alone", "confidence": "Confirmed: cached image metadata"},
+        {"order": 11, "stage": "Serving memory envelope", "anemll": "1M max-model-len recipe, utilization-based cache sizing", "current": "4096 max-model-len, fixed 8GiB KV, C6 max, 108GiB cgroup/no swap, 10GiB host reserve", "impact": "Current favors recoverability after unified-memory OOM; serving-capacity profiles are not equivalent", "confidence": "Confirmed: launch configuration"}
+      ]
+    }
+  },
+  "sources": [
+    {
+      "id": "reviewed_evidence",
+      "label": "Reviewed local code, configuration, logs, and benchmark evidence",
+      "path": "flow-comparison-report-artifact.json",
+      "query": {
+        "engine": "sqlite",
+        "language": "sql",
+        "description": "Materializes the aligned official-checkpoint C6 control and the earlier four-point true-FP4 comparison with derived iteration rates; code-path claims were separately inspected in the exact cached container sources.",
+        "executed_at": "2026-08-18T11:50:12+08:00",
+        "sql": "WITH official(runtime,output_tps,accepted_tokens_per_iteration) AS (VALUES ('Current vLLM 0.27.1 hot',97.20396158215175,2.705948372615039),('Anemll 0.1.1 reference',108.18365943499163,2.873033707865168)), legacy(concurrency,runtime,output_tps,accepted_tokens_per_iteration) AS (VALUES (1,'Current true-FP4',28.950856303614188,2.3705179282868527),(1,'Anemll original',41.26991839795751,2.7233009708737868),(2,'Current true-FP4',41.579833962439444,2.479557069846678),(2,'Anemll original',64.30259984361244,2.9286743515850144),(4,'Current true-FP4',51.21538447471522,2.4369747899159666),(4,'Anemll original',90.87452404234884,2.8875305623471887),(6,'Current true-FP4',61.736616798378535,2.323794382617912),(6,'Anemll original',108.18365943499163,2.895754359363153)) SELECT 'official_c6' AS dataset,runtime,output_tps,accepted_tokens_per_iteration,output_tps/accepted_tokens_per_iteration AS aggregate_iterations_per_second FROM official UNION ALL SELECT 'legacy_c' || concurrency,runtime,output_tps,accepted_tokens_per_iteration,output_tps/accepted_tokens_per_iteration FROM legacy"
+      }
+    }
+  ]
+}

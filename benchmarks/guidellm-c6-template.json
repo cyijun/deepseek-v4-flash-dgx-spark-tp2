@@ -1,0 +1,70 @@
+{
+  "metadata": {
+    "labels": {
+      "mode": "deepseek-v4-flash-tp2-c6"
+    }
+  },
+  "spec": {
+    "backend": {
+      "kind": "openai_http",
+      "target": "http://127.0.0.1:8888",
+      "model": "deepseek-v4-flash",
+      "request_format": "/v1/chat/completions",
+      "timeout": 300.0,
+      "stream": true
+    },
+    "profile": {
+      "kind": "concurrent",
+      "warmup": {
+        "value": 10,
+        "mode": "duration"
+      },
+      "streams": [6]
+    },
+    "constraints": [
+      {
+        "kind": "max_duration",
+        "stopping_scope": "current",
+        "seconds": 70
+      },
+      {
+        "kind": "max_errors",
+        "stopping_scope": "current",
+        "count": 1
+      }
+    ],
+    "tokenizer": {
+      "kind": "huggingface_auto",
+      "model": "REPLACE_WITH_LOCAL_MODEL_SNAPSHOT",
+      "load_kwargs": {
+        "local_files_only": true
+      }
+    },
+    "data": [
+      {
+        "kind": "synthetic_text",
+        "prompt_tokens": 256,
+        "output_tokens": 256
+      }
+    ],
+    "seed": {
+      "kind": "static",
+      "value": 42
+    },
+    "outputs": [
+      {
+        "kind": "json",
+        "path": "benchmarks/results/c6.json"
+      },
+      {
+        "kind": "csv",
+        "path": "benchmarks/results/c6.csv"
+      }
+    ],
+    "metrics": {
+      "kind": "generative",
+      "sample_size": 20,
+      "prefer_response_metrics": true
+    }
+  }
+}

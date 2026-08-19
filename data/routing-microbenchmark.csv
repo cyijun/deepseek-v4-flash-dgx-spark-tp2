@@ -1,0 +1,4 @@
+tokens,cat_path_cuda_ms,fused_path_cuda_ms,reduction_percent,outputs_equal
+6,0.0304213,0.0123764,59.316,true
+30,0.0303357,0.0123404,59.321,true
+36,0.0306486,0.0123788,59.610,true

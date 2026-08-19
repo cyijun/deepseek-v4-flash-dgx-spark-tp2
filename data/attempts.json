@@ -1,0 +1,126 @@
+{
+  "schema_version": 1,
+  "updated_at": "2026-08-19T00:00:00+08:00",
+  "hardware": "2x NVIDIA DGX Spark / GB10 / SM121",
+  "serving_envelope": {
+    "tensor_parallel": 2,
+    "pipeline_parallel": 1,
+    "max_concurrency": 6,
+    "max_model_length": 4096,
+    "kv_cache_bytes_per_node": 6442450944,
+    "container_memory_limit": "108g",
+    "minimum_start_mem_available_gib": 110,
+    "minimum_runtime_mem_available_gib": 10,
+    "maximum_swap_growth_mib": 512
+  },
+  "attempts": [
+    {
+      "id": "nvfp4-structure-mock",
+      "date": "2026-08-16",
+      "status": "completed",
+      "category": "compatibility",
+      "change": "Built a small DeepSeek-V4-shaped NVFP4 checkpoint and aligned its config, tensor names, expert layout, MTP structure, and quantization metadata with the NVIDIA checkpoint family.",
+      "result": "Useful for loader and dispatch validation; it cannot reproduce full-model capacity, acceptance, or communication behavior.",
+      "decision": "Keep mock models for correctness smoke tests only. Use the 48-shard cached checkpoint for deployment claims."
+    },
+    {
+      "id": "true-nvfp4-ds-mla",
+      "date": "2026-08-17",
+      "status": "completed",
+      "category": "attention",
+      "change": "Added a true 288-byte packed FP4 DeepSeek-V4 MLA cache row and fused sparse decode path for SM121.",
+      "result": "The full NVFP4 checkpoint served with the physical four-bit KV layout under TP=2.",
+      "decision": "Treat this as a separate format implementation. Anemll's similarly named cache is physically FP8 and is not its performance baseline."
+    },
+    {
+      "id": "hybrid-cudagraph-c2",
+      "date": "2026-08-17",
+      "status": "completed",
+      "category": "cuda-graphs",
+      "change": "Kept stable decode CUDA graphs but forced the exact 12-token C2 verification shape eager.",
+      "result": "C2 increased from 27.95 to 41.58 aggregate output tok/s, a 48.7% improvement over the earlier padded graph profile.",
+      "decision": "Retain exact eager token-size support; do not generalize the gain to unchanged C1/C4/C6 paths."
+    },
+    {
+      "id": "nvfp4-target-w4a16-marlin-draft",
+      "date": "2026-08-18",
+      "status": "completed",
+      "category": "moe",
+      "change": "Kept target weights packed as NVFP4 but executed target experts through B12X W4A16; retained Marlin for the abliterated checkpoint's draft experts.",
+      "result": "C6 reached 80.27 output tok/s, 2.493 output tokens per target iteration, and an estimated 186.4 ms target iteration.",
+      "decision": "This is the strongest measured NVFP4-checkpoint configuration in the experiment set."
+    },
+    {
+      "id": "nvfp4-target-w4a16-b12x-draft",
+      "date": "2026-08-18",
+      "status": "completed",
+      "category": "moe",
+      "change": "Used B12X W4A16 for both target and draft experts on the abliterated NVFP4 checkpoint.",
+      "result": "C6 reached 69.43 output tok/s and 2.442 output tokens per target iteration.",
+      "decision": "Matching Anemll's draft backend did not outweigh this checkpoint/run's acceptance and integration behavior; retain as a comparison, not the NVFP4 default."
+    },
+    {
+      "id": "nvfp4-target-w4a4-b12x-draft",
+      "date": "2026-08-18",
+      "status": "completed",
+      "category": "moe",
+      "change": "Used the true W4A4 CUTLASS target path and B12X draft path.",
+      "result": "C6 reached 68.40 output tok/s. A routed-M=36 layer measured 5.282 ms for W4A4 versus 4.505 ms for W4A16.",
+      "decision": "At small decode M, activation reduction, FP4 packing, and scale handling are not amortized. Prefer packed NVFP4 weights with W4A16 execution."
+    },
+    {
+      "id": "official-aligned-hot-control",
+      "date": "2026-08-18",
+      "status": "completed",
+      "category": "end-to-end-control",
+      "change": "Aligned the official checkpoint, physical FP8 DS-MLA KV, B12X W4A16 target and draft, probabilistic MTP-5, low-thinking prompt, C6, and 256-to-256 GuideLLM workload with the Anemll record.",
+      "result": "The hot run reached 97.20 output tok/s versus Anemll's 108.18. Acceptance was 5.82% lower and estimated target-iteration time 4.82% longer.",
+      "decision": "Use this as the canonical system-level control; do not use the cold 67.99 tok/s run contaminated by JIT compilation."
+    },
+    {
+      "id": "tilelang-019-control",
+      "date": "2026-08-18",
+      "status": "rejected",
+      "category": "compiler-runtime",
+      "change": "Tried TileLang 0.1.9 after an isolated MHC-post reduction relative to 0.1.12.",
+      "result": "The first 80.2 tok/s run was cold/JIT-contaminated. Exported MHC cubin SASS was identical, and retry startup crossed the swap-growth guard.",
+      "decision": "Do not pin TileLang 0.1.9 or claim a steady-state improvement."
+    },
+    {
+      "id": "phase-aligned-profile",
+      "date": "2026-08-18",
+      "status": "completed",
+      "category": "profiling",
+      "change": "Restricted current and Anemll traces to shared decode grids and compared average CUDA duration per call.",
+      "result": "Current B12X main, top-k sum, MHC pre/post, sparse MLA, route prefix, and sort were faster. Route post-prefix was the only listed current regression. The earlier aggregate diagnosis had mixed 43 large prefill calls into the current trace.",
+      "decision": "Do not attribute the 10.15% system gap to B12X or MHC decode kernels from aggregate trace totals."
+    },
+    {
+      "id": "fused-shared-routing",
+      "date": "2026-08-18",
+      "status": "unit-validated",
+      "category": "routing",
+      "change": "Wrote DeepSeek-V4 shared-expert slots directly from the existing eight-lane top-k kernel, removing two torch.cat calls per MoE invocation.",
+      "result": "The routing step fell from about 30.4 to 12.4 microseconds at 6, 30, and 36 tokens, a roughly 59% reduction. Seven CUDA unit tests passed.",
+      "decision": "Retain commit 7e64417. Full TP=2 end-to-end benefit remains unmeasured."
+    },
+    {
+      "id": "optimized-image-tp2-startup",
+      "date": "2026-08-18",
+      "status": "safety-stopped",
+      "category": "deployment",
+      "change": "Started the fused-routing image with TP=2, C6, fixed 6 GiB KV, and the 108 GiB cgroup.",
+      "result": "The startup guard stopped the run when head swap growth reached 654 MiB, above the 512 MiB limit. Both containers were removed and no throughput result was recorded.",
+      "decision": "No post-optimization end-to-end claim. Re-run only when both hosts pass the 110 GiB MemAvailable preflight and startup remains within the same guardrails."
+    },
+    {
+      "id": "pipeline-parallel-branch",
+      "date": "2026-08-17",
+      "status": "out-of-scope",
+      "category": "topology",
+      "change": "Explored PP support during bring-up.",
+      "result": "It did not replace the requested tensor-parallel deployment path.",
+      "decision": "The packaged deployment enforces TP=2 and PP=1."
+    }
+  ]
+}

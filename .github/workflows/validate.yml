@@ -1,0 +1,27 @@
+name: Validate repository
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install validators
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
+      - name: Validate shell and structured data
+        run: |
+          bash -n scripts/*.sh
+          shellcheck scripts/*.sh
+          python3 -m compileall -q scripts
+          python3 -m json.tool data/attempts.json >/dev/null
+          python3 -m json.tool reports/flow-comparison-report-artifact.json >/dev/null
+      - name: Check pinned source links
+        run: scripts/check-source-contract.sh

@@ -1,0 +1,128 @@
+name: Package ARM64 runtime
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: GHCR tag to publish
+        required: true
+        default: vllm027-sm121
+        type: string
+      push_image:
+        description: Push the image to GHCR
+        required: true
+        default: true
+        type: boolean
+      vllm_ref:
+        description: Commit from cyijun/vllm
+        required: true
+        default: 7e64417e4af6d0079a0a9bfb999dd667f7263a58
+        type: string
+      flashinfer_ref:
+        description: Commit from cyijun/flashinfer
+        required: true
+        default: 6398edbbc6796d81781bd54827be860b65d8f38b
+        type: string
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+  packages: write
+  id-token: write
+  attestations: write
+
+concurrency:
+  group: container-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    # Deliberately never runs for pull_request events. Do not expose a public
+    # self-hosted runner to untrusted PR code.
+    runs-on: [self-hosted, linux, ARM64, dgx-spark]
+    environment: container-release
+    env:
+      REGISTRY: ghcr.io
+      IMAGE_NAME: ${{ github.repository }}
+      VLLM_REF: ${{ inputs.vllm_ref || '7e64417e4af6d0079a0a9bfb999dd667f7263a58' }}
+      FLASHINFER_REF: ${{ inputs.flashinfer_ref || '6398edbbc6796d81781bd54827be860b65d8f38b' }}
+      BASE_IMAGE: vllm/vllm-openai:v0.27.1@sha256:0a51ea5b4ae2dc5d81890e5173f54203d2a3ae0cfffe51b8fd2afd4391bfd967
+      B12X_VERSION: 1.2.4
+
+    steps:
+      - name: Check out deployment repository
+        uses: actions/checkout@v4
+        with:
+          path: deployment
+
+      - name: Check out linked vLLM fork
+        uses: actions/checkout@v4
+        with:
+          repository: cyijun/vllm
+          ref: ${{ env.VLLM_REF }}
+          path: sources/vllm
+
+      - name: Check out linked FlashInfer fork
+        uses: actions/checkout@v4
+        with:
+          repository: cyijun/flashinfer
+          ref: ${{ env.FLASHINFER_REF }}
+          path: sources/flashinfer
+
+      - name: Prepare deterministic build context
+        id: context
+        shell: bash
+        run: |
+          context="$(mktemp -d "$RUNNER_TEMP/dsv4-context.XXXXXX")"
+          deployment/scripts/prepare-build-context.sh \
+            sources/vllm sources/flashinfer "$context"
+          echo "path=$context" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        if: github.event_name != 'workflow_dispatch' || inputs.push_image
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Generate image metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=${{ inputs.image_tag || 'vllm027-sm121' }}
+            type=sha,prefix=sha-
+            type=ref,event=tag
+
+      - name: Build and optionally push ARM64 image
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ steps.context.outputs.path }}
+          file: ${{ steps.context.outputs.path }}/Dockerfile
+          platforms: linux/arm64
+          push: ${{ github.event_name != 'workflow_dispatch' || inputs.push_image }}
+          load: ${{ github.event_name == 'workflow_dispatch' && !inputs.push_image }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            BASE_IMAGE=${{ env.BASE_IMAGE }}
+            B12X_VERSION=${{ env.B12X_VERSION }}
+            VLLM_SOURCE_COMMIT=${{ env.VLLM_REF }}
+            FLASHINFER_SOURCE_COMMIT=${{ env.FLASHINFER_REF }}
+          provenance: mode=max
+
+      - name: Attest pushed image
+        if: github.event_name != 'workflow_dispatch' || inputs.push_image
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true

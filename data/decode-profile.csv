@@ -1,0 +1,9 @@
+order,component,current_us_per_call,anemll_us_per_call,current_vs_anemll_percent,note
+1,B12X main MoE,1453.309,2142.967,-32.18,rank0 shared decode grid
+2,W4A16 top-k sum,5.243,10.419,-49.68,rank0 shared decode grids
+3,MHC post,8.404,17.701,-52.52,rank0 grid36
+4,MHC pre and norm,5.300,13.300,-60.15,rank0 grid36
+5,Sparse MLA decode,48.571,69.553,-30.17,rank0 grid36
+6,Route prefix,18.041,32.875,-45.12,rank0 grid1
+7,Route post-prefix,12.648,10.208,23.90,rank0 grid9
+8,Route sort,1.934,4.395,-56.00,rank0 grid1

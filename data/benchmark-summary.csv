@@ -1,0 +1,8 @@
+experiment,checkpoint,target_moe,draft_moe,kv_layout,concurrency,output_tps,output_tokens_per_target_iteration,estimated_target_iteration_ms,status
+initial_hybrid,NVFP4_abliterated,B12X_W4A4,Marlin,NVFP4_288B,6,61.7366,2.3238,225.84,completed
+target_w4a16_marlin_draft,NVFP4_abliterated,B12X_W4A16,Marlin,NVFP4_288B,6,80.27,2.493,186.4,completed
+target_w4a16_b12x_draft,NVFP4_abliterated,B12X_W4A16,B12X_W4A16,NVFP4_288B,6,69.43,2.442,211.0,completed
+target_w4a4_b12x_draft,NVFP4_abliterated,CUTLASS_W4A4,B12X_W4A16,NVFP4_288B,6,68.40,2.498,219.1,completed
+official_aligned_hot,official_FP8_MXFP4,B12X_W4A16,B12X_W4A16,FP8_DS_MLA_584B,6,97.2040,2.7059,167.03,completed
+anemll_reference,official_FP8_MXFP4,B12X_W4A16,B12X_W4A16,FP8_DS_MLA_584B,6,108.1837,2.8730,159.34,reference
+optimized_shared_route,official_FP8_MXFP4,B12X_W4A16,B12X_W4A16,FP8_DS_MLA_584B,6,,,,safety_stopped_before_health

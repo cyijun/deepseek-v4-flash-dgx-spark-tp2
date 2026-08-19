@@ -1,0 +1,11 @@
+.build-context/
+.cache/
+.env
+config/deployment.env
+*.log
+*.pt
+*.trace.json*
+__pycache__/
+logs/
+profiles/
+reports/.qa-*

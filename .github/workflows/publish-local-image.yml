@@ -1,0 +1,95 @@
+name: Publish verified local runtime
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_image:
+        description: Existing image on the trusted DGX Spark runner
+        required: true
+        default: ghcr.io/cyijun/deepseek-v4-flash-dgx-spark-tp2:sha-1065d72
+        type: string
+      release_tag:
+        description: Human-readable GHCR tag
+        required: true
+        default: vllm027-sm121-b12x0153-tile128x64
+        type: string
+      expected_image_id:
+        description: Exact verified local Docker image ID
+        required: true
+        default: sha256:cdeb2cea590c15ee49e70e69d733ba06ac4ac4c0eda09ad0c6fef61b25a76242
+        type: string
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: publish-local-runtime
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: [self-hosted, linux, ARM64, dgx-spark]
+    timeout-minutes: 120
+    env:
+      REGISTRY_IMAGE: ghcr.io/cyijun/deepseek-v4-flash-dgx-spark-tp2
+      DEPLOYMENT_COMMIT: 1065d722f7dbab61d6df5ca9ed996c49510e43de
+      VLLM_COMMIT: 2db20513ab9d73e61aecabb3ab83e8f60644718e
+      FLASHINFER_COMMIT: 6398edbbc6796d81781bd54827be860b65d8f38b
+
+    steps:
+      - name: Verify the local release candidate
+        shell: bash
+        env:
+          SOURCE_IMAGE: ${{ inputs.source_image }}
+          EXPECTED_IMAGE_ID: ${{ inputs.expected_image_id }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          set -Eeuo pipefail
+          [[ "$RELEASE_TAG" =~ ^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$ ]]
+          test "$(docker image inspect "$SOURCE_IMAGE" --format '{{.Id}}')" = "$EXPECTED_IMAGE_ID"
+          test "$(docker image inspect "$SOURCE_IMAGE" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')" = "$DEPLOYMENT_COMMIT"
+          test "$(docker image inspect "$SOURCE_IMAGE" --format '{{index .Config.Labels "io.deepseek-v4-dgx-spark.vllm-source-commit"}}')" = "$VLLM_COMMIT"
+          test "$(docker image inspect "$SOURCE_IMAGE" --format '{{index .Config.Labels "io.deepseek-v4-dgx-spark.flashinfer-source-commit"}}')" = "$FLASHINFER_COMMIT"
+          test "$(docker image inspect "$SOURCE_IMAGE" --format '{{index .Config.Labels "io.deepseek-v4-dgx-spark.b12x-runtime"}}')" = "0.15.3-anemll"
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push release and immutable tags
+        id: push
+        shell: bash
+        env:
+          SOURCE_IMAGE: ${{ inputs.source_image }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          set -Eeuo pipefail
+          release_image="$REGISTRY_IMAGE:$RELEASE_TAG"
+          immutable_image="$REGISTRY_IMAGE:sha-${DEPLOYMENT_COMMIT:0:7}"
+          docker tag "$SOURCE_IMAGE" "$release_image"
+          docker tag "$SOURCE_IMAGE" "$immutable_image"
+          docker push "$release_image"
+          docker push "$immutable_image"
+          digest="$(docker image inspect "$release_image" --format '{{index .RepoDigests 0}}')"
+          echo "release_image=$release_image" >> "$GITHUB_OUTPUT"
+          echo "immutable_image=$immutable_image" >> "$GITHUB_OUTPUT"
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+
+      - name: Write release summary
+        shell: bash
+        env:
+          RELEASE_IMAGE: ${{ steps.push.outputs.release_image }}
+          IMMUTABLE_IMAGE: ${{ steps.push.outputs.immutable_image }}
+          DIGEST: ${{ steps.push.outputs.digest }}
+        run: |
+          {
+            echo "## Published DeepSeek V4 Flash runtime"
+            echo
+            echo "- Release: \`$RELEASE_IMAGE\`"
+            echo "- Immutable: \`$IMMUTABLE_IMAGE\`"
+            echo "- Digest: \`$DIGEST\`"
+          } >> "$GITHUB_STEP_SUMMARY"

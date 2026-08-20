@@ -72,6 +72,14 @@ $EDITOR config/deployment.env
 
 推荐从 GitHub 的 **Package ARM64 runtime** workflow 手动构建并推送 GHCR，然后将不可变 digest 写入 `config/deployment.env`。workflow 用标准 `ubuntu-24.04-arm` 准备并校验确定性 build context；`prepare_only=true` 可只生成该 artifact。完整 Docker build 仍使用受信任的自托管 DGX Spark runner，因为标准云 ARM runner 只有 14 GB 磁盘，而当前 base/final image 解压后约为 20.6/22.3 GB。组织版 4-core/150 GB ARM larger runner也可替代自托管 build job。
 
+当前已验证并公开发布的 benchmark runtime：
+
+```bash
+docker pull ghcr.io/cyijun/deepseek-v4-flash-dgx-spark-tp2@sha256:f9724fb4a7feef44b83f32c10bc8826153eb2da000d1a0e5767f547c771cf444
+```
+
+可读 tag 为 `vllm027-sm121-b12x0153-tile128x64`；部署应优先使用上面的 immutable digest。该镜像对应本地缓存的 vLLM nightly dependency base、vLLM source `2db2051`、FlashInfer `6398edb` 和 B12X runtime `0.15.3-anemll`。
+
 本机构建：
 
 ```bash

@@ -13,6 +13,11 @@ on:
         required: true
         default: true
         type: boolean
+      prepare_only:
+        description: Stop after the standard cloud ARM runner uploads the build context
+        required: true
+        default: false
+        type: boolean
       vllm_ref:
         description: Commit from cyijun/vllm
         required: true
@@ -84,6 +89,7 @@ jobs:
 
   build:
     needs: prepare
+    if: ${{ github.event_name != 'workflow_dispatch' || !inputs.prepare_only }}
     # The standard cloud ARM runner has only 14 GB of disk, less than the
     # 20.6 GB base image. Default to a trusted Spark runner; an organization
     # can set ARM64_BUILD_RUNNER to its GitHub-hosted larger-runner label.

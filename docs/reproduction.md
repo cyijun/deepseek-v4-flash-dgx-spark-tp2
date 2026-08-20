@@ -29,6 +29,9 @@ cp config/deployment.env.example config/deployment.env
 `ubuntu-24.04-arm` 上准备 build context；标准 runner 的 14 GB 磁盘小于 vLLM base
 image 的解压尺寸，不能承担最终 Docker build。
 
+只想验证和下载源码上下文时，把 workflow input `prepare_only` 设为 `true`；此模式完全在
+标准云 ARM runner 上完成并上传 `arm64-build-context` artifact，不等待 build runner。
+
 建议在 `container-release` environment 配置 owner approval，并给自托管 runner 增加：
 
 ```text

@@ -70,7 +70,7 @@ $EDITOR config/deployment.env
 
 ### 2. 获取镜像
 
-推荐从 GitHub 的 **Package ARM64 runtime** workflow 手动构建并推送 GHCR，然后将不可变 digest 写入 `config/deployment.env`。workflow 用标准 `ubuntu-24.04-arm` 准备并校验确定性 build context；完整 Docker build 仍使用受信任的自托管 DGX Spark runner，因为标准云 ARM runner 只有 14 GB 磁盘，而当前 base/final image 解压后约为 20.6/22.3 GB。组织版 4-core/150 GB ARM larger runner也可替代自托管 build job。
+推荐从 GitHub 的 **Package ARM64 runtime** workflow 手动构建并推送 GHCR，然后将不可变 digest 写入 `config/deployment.env`。workflow 用标准 `ubuntu-24.04-arm` 准备并校验确定性 build context；`prepare_only=true` 可只生成该 artifact。完整 Docker build 仍使用受信任的自托管 DGX Spark runner，因为标准云 ARM runner 只有 14 GB 磁盘，而当前 base/final image 解压后约为 20.6/22.3 GB。组织版 4-core/150 GB ARM larger runner也可替代自托管 build job。
 
 本机构建：
 

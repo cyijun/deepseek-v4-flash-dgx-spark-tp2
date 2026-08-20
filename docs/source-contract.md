@@ -7,9 +7,10 @@
 | 组件 | 固定版本 | 链接 |
 | --- | --- | --- |
 | vLLM binary base | `vllm/vllm-openai:v0.27.1@sha256:0a51…967` | [Docker Hub manifest](https://hub.docker.com/r/vllm/vllm-openai) |
-| vLLM source overlay | `7e64417e4af6d0079a0a9bfb999dd667f7263a58` | [commit](https://github.com/cyijun/vllm/commit/7e64417e4af6d0079a0a9bfb999dd667f7263a58) · [branch](https://github.com/cyijun/vllm/tree/feat/deepseek-v4-nvfp4-ds-mla) |
+| vLLM source overlay | `2db20513ab9d73e61aecabb3ab83e8f60644718e` | [commit](https://github.com/cyijun/vllm/commit/2db20513ab9d73e61aecabb3ab83e8f60644718e) · [branch](https://github.com/cyijun/vllm/tree/feat/deepseek-v4-nvfp4-ds-mla) |
 | FlashInfer source/JIT overlay | `6398edbbc6796d81781bd54827be860b65d8f38b` | [commit](https://github.com/cyijun/flashinfer/commit/6398edbbc6796d81781bd54827be860b65d8f38b) · [branch](https://github.com/cyijun/flashinfer/tree/agent/apply-swiglu-limit-to-silu-b12x) |
-| B12X | `1.2.4` | installed from PyPI during image build |
+| B12X dependency stack | `1.2.4` | installed from PyPI during image build |
+| B12X runtime package | `0.15.3` | copied from `ghcr.io/anemll/dspark-vllm-gx10:0.1.1` after installing the dependency stack |
 
 Action 不使用 branch tip 作为默认输入。branch 链接用于浏览，完整 commit 才是构建身份。
 
@@ -43,6 +44,14 @@ Action 不使用 branch tip 作为默认输入。branch 链接用于浏览，完
 | [`0ff333e`](https://github.com/cyijun/vllm/commit/0ff333eaa63beedd994432798a551906dbc4a758) | FlashMLA 支持 B12X `wo_a` | 保留 |
 | [`d337c70`](https://github.com/cyijun/vllm/commit/d337c7046ea9670093e5e9ffe3179fc33b8e287c) | CUDA graph capture 前预热 B12X route packing | 保留 |
 | [`7e64417`](https://github.com/cyijun/vllm/commit/7e64417e4af6d0079a0a9bfb999dd667f7263a58) | top-k kernel 直接写 shared-expert slots，移除两次 cat | 保留；GPU unit validated |
+| [`e28d323`](https://github.com/cyijun/vllm/commit/e28d323) | 避免 W4A16 route masking 的重复工作 | 保留 |
+| [`8c00e28`](https://github.com/cyijun/vllm/commit/8c00e28) → [`42db932`](https://github.com/cyijun/vllm/commit/42db932) | single-chunk speculative orchestration 尝试及回退 | 已回退 |
+| [`f28e538`](https://github.com/cyijun/vllm/commit/f28e538) | 增加 planned B12X MXFP4 execution route | 保留 |
+| [`5235aaf`](https://github.com/cyijun/vllm/commit/5235aaf) + [`3470fbc`](https://github.com/cyijun/vllm/commit/3470fbc) | 修正 B12X packed route count 绑定并分离 scratch | 保留 |
+| [`cfdb952`](https://github.com/cyijun/vllm/commit/cfdb952) | 接受 B12X ultrawide decode tile | 保留 |
+| [`8d87d34`](https://github.com/cyijun/vllm/commit/8d87d34) + [`416e114`](https://github.com/cyijun/vllm/commit/416e114) | packed standalone MXFP4 weight 与 legacy B12X runtime 支持 | 保留；正式对照使用 |
+| [`023c7ab`](https://github.com/cyijun/vllm/commit/023c7ab) | legacy B12X prefill launch 按 1024 routed rows 分块 | 保留；修复 M=1052 性能 cliff |
+| [`2db2051`](https://github.com/cyijun/vllm/commit/2db20513ab9d73e61aecabb3ab83e8f60644718e) | legacy B12X decode tile 的有界 selector override | 保留；C6 使用 128×64/128-thread |
 
 ## FlashInfer 适配链
 
@@ -73,3 +82,11 @@ out  = silu(gate) * up
 3. 在两个节点拉取同一 digest；
 4. 跑 source-contract、GPU correctness 和 bounded-memory startup；
 5. 若有性能结论，重新生成 report artifact，而不是覆盖历史基准含义。
+
+## 基准镜像说明
+
+正式 180 秒 C6 对照运行在用户新缓存的 ARM64 nightly 依赖镜像上，其 OCI revision 为
+`acb0f1dcdb668d90bbbf50e57552d2f6f0987c87`，再 overlay 上述基于 v0.27.1 的定制源码。
+这个本地镜像没有可回溯的公开 RepoDigest，因此发布 Action 仍以可复现的 v0.27.1 manifest
+作为默认 binary base。报告中的正式数值只对应 nightly 依赖镜像；用 Action 生成的新镜像在发布前
+必须重新跑同一 C6 correctness/performance gate，不能把历史结果直接继承给新 digest。

@@ -4,26 +4,38 @@
     "version": 1,
     "surface": "report",
     "title": "DeepSeek V4 Flash Runtime and Format Findings",
-    "description": "Code-, log-, profile-, and benchmark-backed comparison of Anemll 0.1.1, the vLLM 0.27 NVFP4/true-FP4 adaptation, and the latest official FP8/MXFP4 control on two DGX Sparks, including the first validated routing optimization.",
-    "generatedAt": "2026-08-19T22:00:00+08:00",
+    "description": "Code-, log-, profile-, and benchmark-backed comparison of Anemll 0.1.1, the vLLM 0.27 NVFP4/true-FP4 adaptation, and the optimized legacy-B12X official-checkpoint control on two DGX Sparks.",
+    "generatedAt": "2026-08-20T21:00:00+08:00",
     "cards": [
       {
         "id": "c6_gap",
-        "description": "Matched GuideLLM 256-to-256 aggregate output throughput at concurrency six.",
+        "description": "Best and repeated 180-second GuideLLM 256-to-256 output throughput at concurrency six.",
         "dataset": "official_summary",
         "sourceId": "reviewed_evidence",
         "metrics": [
           {
-            "label": "Official control, hot C6",
-            "field": "official_hot_c6_tps",
+            "label": "Optimized two-run mean",
+            "field": "optimized_mean_c6_tps",
             "format": "number",
             "unit": "tok/s"
           },
           {
             "label": "vs Anemll",
-            "field": "official_hot_vs_anemll",
+            "field": "optimized_mean_vs_anemll",
             "format": "percent",
             "signed": true
+          },
+          {
+            "label": "Best repeat",
+            "field": "optimized_best_c6_tps",
+            "format": "number",
+            "unit": "tok/s"
+          },
+          {
+            "label": "Other repeat",
+            "field": "optimized_repeat_c6_tps",
+            "format": "number",
+            "unit": "tok/s"
           }
         ]
       },
@@ -46,15 +58,15 @@
       {
         "id": "official_control_comparison",
         "title": "Official-checkpoint C6 output throughput",
-        "subtitle": "Hot 256-to-256 GuideLLM windows on 2× DGX Spark, TP=2; both paths use MXFP4 experts, B12X target and draft, and physical FP8 DS-MLA KV.",
+        "subtitle": "Hot 180-second 256-to-256 GuideLLM windows on 2× DGX Spark, TP=2; all paths use MXFP4 experts, B12X target/draft, and physical FP8 DS-MLA KV.",
         "type": "bar",
         "intent": "comparison",
-        "question": "How close is the current aligned official-checkpoint control to the recorded Anemll deployment?",
-        "rationale": "Two bars are the clearest view of the only matched hot C6 control; exact acceptance and latency decomposition remains in the adjacent table.",
+        "question": "Does bounded legacy-B12X prefill chunking and decode-tile selection reach Anemll's hot C6 performance band?",
+        "rationale": "Four discrete bars compare the Anemll reference, the chunk-only baseline, and two optimized repeats; exact acceptance and target-iteration decomposition remains in the adjacent table.",
         "comparisonContext": {
           "baseline": "Cached Anemll 0.1.1 deployment with the official DeepSeek-V4-Flash-0731 checkpoint",
           "denominator": "GuideLLM time-weighted aggregate output tokens",
-          "grain": "one hot 60-second measured window per runtime at concurrency six",
+          "grain": "one hot 180-second measured window per run at concurrency six",
           "unit": "output tokens per second"
         },
         "dataset": "official_control",
@@ -165,7 +177,7 @@
       {
         "id": "official_control_detail",
         "title": "Official-checkpoint hot C6 benchmark detail",
-        "subtitle": "256 prompt tokens to 256 output tokens; 10-second warmup and 60-second measured window; no request errors.",
+        "subtitle": "256 prompt tokens to 256 output tokens; 10-second warmup and 180-second measured window; no request errors.",
         "dataset": "official_control",
         "sourceId": "reviewed_evidence",
         "defaultSort": {
@@ -399,7 +411,7 @@
         "id": "executive_summary",
         "type": "markdown",
         "sourceId": "reviewed_evidence",
-        "body": "## Technical summary\n\n**Anemll's `nvfp4_ds_mla` name hides a physically FP8 KV cache.** Its DeepSeek-V4 path stores 448 bytes of FP8 NoPE KV, 128 bytes of BF16 RoPE, and 8 bytes of UE8M0 scales—**584 bytes per token**—then calls the FP8 insert op and FlashMLA with `is_fp8_kvcache=True`. It is not an NVFP4 or four-bit KV layout.\n\n**The latest official-checkpoint control reached 97.20 output tok/s at C6, 10.15% below Anemll's 108.18 tok/s.** Both paths now use the same official weight family, B12X W4A16 for target and draft, physical FP8 DS-MLA KV, probabilistic MTP-5, and low-thinking prompt policy. The remaining gap decomposes into 5.82% fewer output tokens per target iteration and 4.82% longer estimated target iterations.\n\n**The isolated draft expert path is aligned.** Cross-container layer-0 output was all-close, and current FlashInfer W4A16 was fractionally faster in the routed-M=36 layer microbenchmark. The residual is therefore end-to-end—acceptance, attention, scheduling, graph lifecycle, and runtime overhead—not evidence that the current draft expert GEMM is slower."
+        "body": "## Technical summary\n\n**Anemll's `nvfp4_ds_mla` name hides a physically FP8 KV cache.** Its DeepSeek-V4 path stores 448 bytes of FP8 NoPE KV, 128 bytes of BF16 RoPE, and 8 bytes of UE8M0 scales—**584 bytes per token**—then calls the FP8 insert op and FlashMLA with `is_fp8_kvcache=True`. It is not an NVFP4 or four-bit KV layout.\n\n**The optimized official-checkpoint control is now in Anemll's C6 band.** Under matched 10-second warmup plus 180-second measurement, Anemll reached **106.07 output tok/s**. The `128×64/128-thread` bounded tile run reached **106.39 tok/s** (+0.31%); its repeat reached **104.94 tok/s** (-1.06%). The optimized two-run mean is **105.67 tok/s** (-0.38%).\n\n**Target compute is consistently faster, while speculative acceptance varies.** Estimated target-batch iteration time was 160.98 ms for Anemll and 160.35/159.38 ms for the optimized repeats. End-to-end output moved with output tokens per target iteration (2.85 for Anemll versus 2.84/2.79), so one repeat beating and one trailing Anemll is consistent with probabilistic MTP-5 acceptance noise rather than a target-kernel regression."
       },
       {
         "id": "metrics",
@@ -410,7 +422,7 @@
         "id": "official_control_finding",
         "type": "markdown",
         "sourceId": "reviewed_evidence",
-        "body": "## The aligned official-checkpoint control closes most of the earlier gap\n\nThe canonical result is the second, hot GuideLLM run. The first run reached only **67.99 tok/s** because TileLang, Triton, and CuTeDSL compilation occurred inside its measured window; it is retained as cold-start evidence, not used for steady-state comparison. The hot run produced no new JIT messages and reached **97.20 tok/s**, versus **108.18 tok/s** in the Anemll record."
+        "body": "## Bounded legacy-B12X changes remove the reproducible target-compute gap\n\nLegacy B12X 0.15.3 had a severe prefill cliff just above 1024 routed rows: `M=1052` took about 591 ms while `M=1024` took 8.64 ms. Commit `023c7ab` chunks only the legacy prefill path to at most 1024 routed rows. Commit `2db2051` leaves the normal selector unchanged but permits a validated `128×64/128-thread` W4A16 tile only through the C6 decode envelope `M≤36`.\n\nThe chunk-only hot run reached **104.35 tok/s**. The two tile repeats reached **106.39** and **104.94 tok/s** against Anemll's **106.07 tok/s**. Both optimized runs executed target batches faster than Anemll; acceptance variance accounts for the order reversal in aggregate output throughput."
       },
       {
         "id": "official_control_chart_block",
@@ -422,7 +434,7 @@
         "id": "official_control_definitions",
         "type": "markdown",
         "sourceId": "reviewed_evidence",
-        "body": "## The comparison matches the important model and serving dimensions\n\nBoth rows use the official revision `9e165c30…`, two DGX Sparks with TP=2, concurrency six, 256 input and 256 requested output tokens, a 10-second warmup, and a 60-second measured window. Current vLLM uses a fixed 6 GiB cache and a C6/4096 safety envelope. **Output tok/target iter** is GuideLLM's output-tokens-per-iteration metric; estimated target-iteration time is `output tok/iter × 6 ÷ aggregate output tok/s`. The current hot run completed 25 requests with five in flight at cutoff and zero errors; Anemll completed 27 with five in flight and zero errors."
+        "body": "## The comparison matches the important model and serving dimensions\n\nAll four rows use official revision `9e165c30…`, two DGX Sparks with TP=2, concurrency six, 256 input and 256 requested output tokens, a 10-second warmup, and a 180-second measured window. Current vLLM uses a fixed 6 GiB cache and a C6/4096 safety envelope. **Output tok/target iter** is GuideLLM's output-tokens-per-iteration metric; estimated target-iteration time is `output tok/iter × 6 ÷ aggregate output tok/s`. Every run completed the window with zero request errors."
       },
       {
         "id": "official_control_table_block",
@@ -498,33 +510,33 @@
       {
         "id": "other_differences",
         "type": "markdown",
-        "body": "## Runtime lifecycle now dominates the remaining comparability limits\n\n- **Runtime lineage:** Anemll is based on vLLM 0.25.2.dev0 with an older PyTorch/Triton/CUTLASS/FlashInfer/B12X stack. The optimized image embeds vLLM commit `7e64417` and FlashInfer commit `6398edb`; compiler and scheduler changes prevent causal attribution from the 10.15% end-to-end gap alone.\n- **Graphs and warmup:** Current captures full decode shapes 5/6/12/24/25/30/36 and prewarms B12X route packing. The cold run still compiled additional prefill and fused-kernel specializations; the report therefore uses the second run as the existing steady result.\n- **Prompt policy:** The current `thinking=true, reasoning_effort=low` template renders byte-for-byte identically to Anemll's recorded low-thinking prompt.\n- **Memory policy:** Current fixes physical FP8 KV at 6 GiB, caps C6/4096, and enforces a 108 GiB cgroup, a 10 GiB host reserve, and a 512 MiB swap-growth stop. Attempts to boot the new image were safely stopped when head swap growth reached 654 MiB; no post-optimization full C6 result is reported.\n- **TP communication:** Decode collective timings moved in opposite directions between ranks, so the traces do not support a communication-regression claim. Multi-node vLLM also disables custom all-reduce and falls back to NCCL/PyNCCL."
+        "body": "## Runtime lifecycle and acceptance now dominate the residual variability\n\n- **Runtime lineage:** Anemll is based on vLLM 0.25.2.dev0. The optimized image overlays vLLM commit `2db2051` and FlashInfer commit `6398edb` on the newly cached ARM64 nightly dependency image; compiler and scheduler changes still prevent single-kernel causal attribution from end-to-end numbers alone.\n- **B12X lineage:** The formal control intentionally copies Anemll's legacy B12X 0.15.3 Python/runtime package after installing the 1.2.4 dependency stack. This aligns execution behavior while retaining the current CUTLASS DSL environment.\n- **Graphs and warmup:** Current captures full decode shapes 5/6/12/24/25/30/36 and prewarms B12X route packing. Formal comparisons use hot runs with no measured-window compilation.\n- **Prompt policy:** The current `thinking=true, reasoning_effort=low` template renders byte-for-byte identically to Anemll's recorded low-thinking prompt.\n- **Memory policy:** Current fixes physical FP8 KV at 6 GiB, caps C6/4096, and enforces a 108 GiB cgroup, a 10 GiB host reserve, and a 512 MiB swap-growth stop. Both optimized 180-second runs stayed within the guard with zero swap growth.\n- **TP communication:** Decode collective timings moved in opposite directions between ranks, so the traces do not support a communication-regression claim. Multi-node vLLM also disables custom all-reduce and falls back to NCCL/PyNCCL."
       },
       {
         "id": "priorities",
         "type": "markdown",
-        "body": "## Next work should target end-to-end lifecycle and acceptance, not already-faster decode kernels\n\n1. Retain the fused shared-expert top-k change and measure its full C6 effect only when a safe startup stays below the swap-growth threshold.\n2. Build a phase-aligned end-to-end trace whose profiler begins after prefill on both runtimes; compare whole target iterations rather than aggregate kernel totals.\n3. Investigate the 5.82% acceptance gap with identical prompts, RNG policy, and target/draft numerics before trading kernel speed for precision.\n4. Treat true FP4 MLA KV as a separate feature with its own 288-byte layout and performance target; do not use Anemll's `nvfp4_ds_mla` alias as evidence of an existing FP4 baseline.\n5. Preserve TP=2, C6, 6 GiB KV, the 108 GiB cgroup, 10 GiB reserve, and swap-growth guard for every follow-up."
+        "body": "## Next work should separate deterministic target speed from stochastic acceptance\n\n1. Keep legacy prefill chunking and the C6-bounded decode tile; both are opt-in and leave the default/current-B12X selector untouched.\n2. Repeat the 180-second pair with fixed or replayed speculative decisions if an acceptance-independent end-to-end comparison is required.\n3. Revalidate the container produced by the public Action because the formal benchmark used the locally cached nightly dependency image, while the Action defaults to the reproducible v0.27.1 manifest.\n4. Treat true FP4 MLA KV as a separate feature with its own 288-byte layout and performance target; do not use Anemll's `nvfp4_ds_mla` alias as evidence of an existing FP4 baseline.\n5. Preserve TP=2, C6, 6 GiB KV, the 108 GiB cgroup, 10 GiB reserve, and swap-growth guard for every follow-up."
       },
       {
         "id": "further_questions",
         "type": "markdown",
-        "body": "## Questions that would change the next optimization choice\n\n- How much of the 7.7 ms target-iteration delta is sparse MLA attention versus model-runner and scheduler overhead?\n- Does matching Anemll's exact CUDA-graph capture lifecycle remove a measurable part of the gap on the current runtime?\n- Which bounded prefill shapes must be warmed so the first user-visible C6 run is free of compilation without reducing the 10 GiB memory reserve?"
+        "body": "## Questions that would change the next optimization choice\n\n- How much of the roughly 1% acceptance spread is normal run-to-run MTP sampling variance versus runtime numerical drift?\n- Can the 128×64 tile be upstreamed safely after a broader SM120/SM121 shape sweep, or should it remain a legacy-package override?\n- Can a GitHub ARM larger runner reproduce the tested image without using a DGX Spark as a container builder?"
       },
       {
         "id": "limitations",
         "type": "markdown",
-        "body": "## Evidence boundaries and robustness checks\n\nThe KV-layout classification is code-backed from the exact cached Anemll image. The archived hot throughput and acceptance values use matched GuideLLM 0.7.2 settings and the same two-node hardware; the existing current run additionally has server logs proving target/draft B12X selection, low-thinking defaults, route prewarm, no measured-window JIT, and no swap growth.\n\nThe profile comparison is now restricted to shared decode grids and per-call averages. Absolute profiler timings are inflated, the current profile contained seven target iterations plus prefill while Anemll contained eight decode iterations, and rank-local NCCL wait cannot be interpreted in isolation. The routing optimization has GPU unit tests and a single-device microbenchmark, but its full TP2 image did not reach health: the startup guard stopped it at 654 MiB head swap growth and all containers were removed. No post-optimization end-to-end throughput claim is made."
+        "body": "## Evidence boundaries and robustness checks\n\nThe KV-layout classification is code-backed from the exact cached Anemll image. The four formal hot values use matched GuideLLM 0.7.2 settings, the same two-node hardware, the official checkpoint, physical FP8 DS-MLA KV, B12X target/draft, low thinking, and zero request errors. Server logs prove route selection, graph prewarm, no measured-window JIT, and zero swap growth for the optimized repeats.\n\nThe optimized image passed legacy-B12X GPU correctness at M=1/36/1025 and CUDA-graph M=1/36, and the selector check proves the override stops at M=36. The two optimized repeats are still only two observations; the +0.31%/-1.06% aggregate spread does not establish a statistically significant end-to-end win. The formal runtime also used a cached nightly base without a public immutable RepoDigest, so a newly built release digest requires its own gate before inheriting the result."
       },
       {
         "id": "evidence",
         "type": "markdown",
-        "body": "## Reviewed evidence\n\n- Cached images: `ghcr.io/anemll/dspark-vllm-gx10:0.1.1`, `infer-deploy/vllm:0.27.1-dsv4-nvfp4-ds-mla-sm121`, and optimized `infer-deploy/vllm:0.27.1-dsv4-nvfp4-ds-mla-sm121-fused-shared-topk`.\n- Optimized source payload: vLLM `7e64417e4af6d0079a0a9bfb999dd667f7263a58`, FlashInfer `6398edbbc6796d81781bd54827be860b65d8f38b`; both nodes contain matching SHA-256 hashes for the two changed router files.\n- Profile traces: `profiles/current-aligned-hot/` and `profiles/anemll-aligned-hot/`; TileLang control artifacts: `profiles/tilelang012-artifacts/` and `profiles/tilelang019-artifacts/`.\n- Routing microbenchmark: `benchmark_dsv4_shared_topk.py`; GPU tests: seven `dsv4_fast_topk` cases passed in the current image.\n- Official checkpoint revision: `9e165c30e2704aec5d9d593cce3eebd58bbef1cb`; NVFP4 revision: `4b15c44c31f8dacdf7b0c2fa42e20d03c5f5859b`.\n- Anemll formal benchmark: `benchmarks/guidellm/results/20260814T125500+0800/short-256x256.json`. Current official-checkpoint hot benchmark: `benchmarks/fp8-anemll-aligned/c6-thinking-low-prewarm-hot-short.json`.\n- Safety-stop diagnostics for the optimized image: `logs/20260818T154515+0800-*`."
+        "body": "## Reviewed evidence\n\n- Cached images: `ghcr.io/anemll/dspark-vllm-gx10:0.1.1` and optimized `infer-deploy/vllm:0.27.1-dsv4-nvfp4-ds-mla-sm121-b12x0153-tile128x64`.\n- Optimized source payload: vLLM `2db20513ab9d73e61aecabb3ab83e8f60644718e`, FlashInfer `6398edbbc6796d81781bd54827be860b65d8f38b`; both fork commits are public and fixed by the deployment source contract.\n- Official checkpoint revision: `9e165c30e2704aec5d9d593cce3eebd58bbef1cb`; NVFP4 revision: `4b15c44c31f8dacdf7b0c2fa42e20d03c5f5859b`.\n- Formal GuideLLM files: `anemll-hot-180s.json`, `legacy-b12x-chunk1024-hot-180s.json`, `legacy-b12x-tile128x64-hot-180s.json`, and `legacy-b12x-tile128x64-hot-180s-repeat.json`; machine-readable summary is in `data/benchmark-summary.csv`.\n- GPU validation: legacy-B12X numerical and CUDA-graph matrix passed 12 tests; the `128×64/128-thread` tile sweep measured 4.228 ms at routed M=36.\n- Memory evidence: both formal optimized runs retained 18/22 GiB host free memory and had zero swap growth under the runtime guard."
       }
     ]
   },
   "snapshot": {
     "version": 1,
-    "generatedAt": "2026-08-19T22:00:00+08:00",
+    "generatedAt": "2026-08-20T21:00:00+08:00",
     "status": "ready",
     "datasets": {
       "summary": [
@@ -537,16 +549,20 @@
       ],
       "official_summary": [
         {
-          "official_hot_c6_tps": 97.20396158215175,
-          "official_hot_vs_anemll": -0.10149127798212132,
-          "official_acceptance_gap": -0.05815641312968911,
-          "official_iteration_time_gap": 0.048229765377358236,
+          "optimized_best_c6_tps": 106.389486,
+          "optimized_best_vs_anemll": 0.0030509395059461486,
+          "optimized_repeat_c6_tps": 104.943262,
+          "optimized_mean_c6_tps": 105.666374,
+          "optimized_mean_vs_anemll": -0.0037666342810729336,
+          "optimized_target_iteration_rate_vs_anemll": 0.006982288499356892,
           "anemll_kv_bytes_per_token": 584
         }
       ],
       "official_control": [
-        {"order": 1, "runtime": "Current vLLM 0.27.1, hot", "output_tps": 97.20396158215175, "accepted_tokens_per_iteration": 2.705948372615039, "iteration_time_ms": 167.0270426372352, "tpot_ms": 61.980380205038124, "ttft_ms": 743.5834487279255, "completed_requests": 25, "incomplete_requests": 5, "request_errors": 0, "measurement_state": "Hot; no new JIT log entries"},
-        {"order": 2, "runtime": "Anemll 0.1.1 reference", "output_tps": 108.18365943499163, "accepted_tokens_per_iteration": 2.873033707865168, "iteration_time_ms": 159.34201465563822, "tpot_ms": 55.67225743546011, "ttft_ms": 704.2856737971306, "completed_requests": 27, "incomplete_requests": 5, "request_errors": 0, "measurement_state": "Archived hot reference"}
+        {"order": 1, "runtime": "Anemll 0.1.1 reference", "output_tps": 106.0658854, "accepted_tokens_per_iteration": 2.8457733, "iteration_time_ms": 160.981445, "tpot_ms": 56.6397, "ttft_ms": 633.795, "request_errors": 0, "measurement_state": "Hot 180-second reference"},
+        {"order": 2, "runtime": "Current: chunk fix only", "output_tps": 104.349689, "accepted_tokens_per_iteration": 2.8084216, "iteration_time_ms": 161.481361, "tpot_ms": 57.562, "ttft_ms": 641.652, "request_errors": 0, "measurement_state": "Hot 180-second baseline"},
+        {"order": 3, "runtime": "Current: tile run 1", "output_tps": 106.389486, "accepted_tokens_per_iteration": 2.843247, "iteration_time_ms": 160.349324, "tpot_ms": 56.4688, "ttft_ms": 638.124, "request_errors": 0, "measurement_state": "Hot 180-second optimized"},
+        {"order": 4, "runtime": "Current: tile repeat", "output_tps": 104.943262, "accepted_tokens_per_iteration": 2.7877134, "iteration_time_ms": 159.384035, "tpot_ms": 57.2475, "ttft_ms": 624.206, "request_errors": 0, "measurement_state": "Hot 180-second optimized repeat"}
       ],
       "throughput_long": [
         {"concurrency": 1, "runtime": "Current true-FP4", "output_tps": 28.950856303614188, "accepted_tokens_per_iteration": 2.3705179282868527, "iterations_per_second": 12.212882239003632},
@@ -660,8 +676,8 @@
         {"order": 7, "stage": "Sparse MLA decode", "anemll": "FlashMLA with is_fp8_kvcache=True", "current": "Custom fused Triton kernel dequantizes selected FP4 rows and performs attention", "impact": "Current kernel is newer and less tuned; likely a material part of iteration-rate gap", "confidence": "Confirmed path; magnitude not isolated"},
         {"order": 8, "stage": "DSpark speculation", "anemll": "Probabilistic MTP-5 using checkpoint-native draft weights", "current": "Same method and k=5; target values differ and draft uses Marlin", "impact": "Current accepts 13.0%-19.8% fewer tokens per target iteration", "confidence": "Confirmed: matched GuideLLM metrics"},
         {"order": 9, "stage": "CUDA graph policy", "anemll": "Normal full graph path through capture size 36", "current": "Full graphs for safe 6/24/30/36 shapes; exact size 12 forced eager", "impact": "Current C2 avoids harmful 12→24 padding but retains less graph coverage than the reference path", "confidence": "Confirmed current; Anemll external overrides unverified"},
-        {"order": 10, "stage": "Runtime stack", "anemll": "vLLM 0.25.2.dev0, torch 2.11, Triton 3.6, CUTLASS DSL 4.5.2, b12x 0.15.3", "current": "vLLM 0.27.2rc1, torch 2.13, Triton 3.7.1, CUTLASS DSL 4.6.0, b12x 1.2.4", "impact": "Compiler/runtime changes prevent causal attribution from end-to-end numbers alone", "confidence": "Confirmed: cached image metadata"},
-        {"order": 11, "stage": "Serving memory envelope", "anemll": "1M max-model-len recipe, utilization-based cache sizing", "current": "4096 max-model-len, fixed 8GiB KV, C6 max, 108GiB cgroup/no swap, 10GiB host reserve", "impact": "Current favors recoverability after unified-memory OOM; serving-capacity profiles are not equivalent", "confidence": "Confirmed: launch configuration"}
+        {"order": 10, "stage": "Runtime stack", "anemll": "vLLM 0.25.2.dev0, torch 2.11, Triton 3.6, CUTLASS DSL 4.5.2, b12x 0.15.3", "current": "Earlier true-FP4 lane used b12x 1.2.4; latest aligned control copies b12x 0.15.3 onto the current nightly dependency stack", "impact": "Compiler/runtime changes prevent causal attribution from end-to-end numbers alone", "confidence": "Confirmed: cached image metadata"},
+        {"order": 11, "stage": "Serving memory envelope", "anemll": "1M max-model-len recipe, utilization-based cache sizing", "current": "4096 max-model-len, fixed 6GiB KV, C6 max, 108GiB cgroup/no swap, 10GiB host reserve", "impact": "Current favors recoverability after unified-memory OOM; serving-capacity profiles are not equivalent", "confidence": "Confirmed: launch configuration"}
       ]
     }
   },
@@ -673,9 +689,9 @@
       "query": {
         "engine": "sqlite",
         "language": "sql",
-        "description": "Materializes the aligned official-checkpoint C6 control and the earlier four-point true-FP4 comparison with derived iteration rates; code-path claims were separately inspected in the exact cached container sources.",
-        "executed_at": "2026-08-18T11:50:12+08:00",
-        "sql": "WITH official(runtime,output_tps,accepted_tokens_per_iteration) AS (VALUES ('Current vLLM 0.27.1 hot',97.20396158215175,2.705948372615039),('Anemll 0.1.1 reference',108.18365943499163,2.873033707865168)), legacy(concurrency,runtime,output_tps,accepted_tokens_per_iteration) AS (VALUES (1,'Current true-FP4',28.950856303614188,2.3705179282868527),(1,'Anemll original',41.26991839795751,2.7233009708737868),(2,'Current true-FP4',41.579833962439444,2.479557069846678),(2,'Anemll original',64.30259984361244,2.9286743515850144),(4,'Current true-FP4',51.21538447471522,2.4369747899159666),(4,'Anemll original',90.87452404234884,2.8875305623471887),(6,'Current true-FP4',61.736616798378535,2.323794382617912),(6,'Anemll original',108.18365943499163,2.895754359363153)) SELECT 'official_c6' AS dataset,runtime,output_tps,accepted_tokens_per_iteration,output_tps/accepted_tokens_per_iteration AS aggregate_iterations_per_second FROM official UNION ALL SELECT 'legacy_c' || concurrency,runtime,output_tps,accepted_tokens_per_iteration,output_tps/accepted_tokens_per_iteration FROM legacy"
+        "description": "Materializes the four 180-second aligned official-checkpoint C6 runs and the earlier four-point true-FP4 comparison with derived iteration rates; code-path claims were separately inspected in the exact cached container sources.",
+        "executed_at": "2026-08-20T20:00:00+08:00",
+        "sql": "WITH official(runtime,output_tps,accepted_tokens_per_iteration) AS (VALUES ('Anemll 0.1.1 reference',106.0658854,2.8457733),('Current chunk fix only',104.349689,2.8084216),('Current tile run 1',106.389486,2.843247),('Current tile repeat',104.943262,2.7877134)), legacy(concurrency,runtime,output_tps,accepted_tokens_per_iteration) AS (VALUES (1,'Current true-FP4',28.950856303614188,2.3705179282868527),(1,'Anemll original',41.26991839795751,2.7233009708737868),(2,'Current true-FP4',41.579833962439444,2.479557069846678),(2,'Anemll original',64.30259984361244,2.9286743515850144),(4,'Current true-FP4',51.21538447471522,2.4369747899159666),(4,'Anemll original',90.87452404234884,2.8875305623471887),(6,'Current true-FP4',61.736616798378535,2.323794382617912),(6,'Anemll original',108.18365943499163,2.895754359363153)) SELECT 'official_c6' AS dataset,runtime,output_tps,accepted_tokens_per_iteration,output_tps/accepted_tokens_per_iteration AS aggregate_iterations_per_second FROM official UNION ALL SELECT 'legacy_c' || concurrency,runtime,output_tps,accepted_tokens_per_iteration,output_tps/accepted_tokens_per_iteration FROM legacy"
       }
     }
   ]

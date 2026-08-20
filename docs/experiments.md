@@ -98,3 +98,22 @@ DeepSeek-V4 top-k kernel 原本已有八个内部 lane，只输出 routed top-6�
 保留：TP=2、B12X W4A16、真实 NVFP4 MLA、official FP8 control、exact eager shape、route-pack prewarm、fused shared route、C6/6 GiB/guardrails。
 
 停止或隔离：PP=2 部署、C128、10 GiB KV、TileLang 0.1.9 pin、把 cold/JIT run 当 steady result、把 Anemll `nvfp4_ds_mla` 当作物理 FP4 baseline。
+
+## 10. 旧 b12x prefill cliff 与 C6 tile 优化跑通完整 TP=2
+
+更新后的诊断在 b12x 0.15.3 中发现一个离散性能悬崖：同一官方 checkpoint shard，M=1024 单层约 8.64 ms，而 M=1052 会因为 route capacity 上取整到 2048、选择不合适的 block 配置而达到约 591 ms。vLLM `023c7ab` 将旧 runtime 的 prefill launch 按最多 1024 routed rows 分块并复用 caller-owned scratch；当前 b12x 1.2.4 路径不变。
+
+随后对 C6 speculative decode 的 M=6/12/30/36 做 tile 扫描。`128×64/128-thread` 在这些 shape 上比旧 selector 的 `64×128/128-thread` 稳定快约 0.6%–1.1%，并由 `2db2051` 作为默认关闭、带 M 上界的通用 selector override 接入。official preset 只在 M≤36 启用，prefill 继续自动选择。
+
+最终 10 秒 warmup + 180 秒测量结果：
+
+| Runtime / run | C6 tok/s | Output tok/target iter | Estimated target batch | TPOT | TTFT |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Anemll 0.1.1 reference | 106.066 | 2.8458 | 160.98 ms | 56.64 ms | 633.80 ms |
+| Current, chunk fix only | 104.350 | 2.8084 | 161.48 ms | 57.56 ms | 641.65 ms |
+| Current, tile run 1 | 106.389 | 2.8432 | 160.35 ms | 56.47 ms | 638.12 ms |
+| Current, tile repeat | 104.943 | 2.7877 | 159.38 ms | 57.25 ms | 624.21 ms |
+
+两次 tile run 的计算迭代率都高于 Anemll（estimated target batch 分别快 0.39% 和 0.99%）。端到端 tok/s 一次高 0.31%、一次低 1.06%，原因是 probabilistic MTP 接受长度在复跑中下降；两次均为零错误。两次平均吞吐 105.666 tok/s，比单次 Anemll reference 低 0.38%，因此结论是“target compute 已稳定更快，端到端达到同一性能带”，而不是宣称无条件的吞吐提升。
+
+两端容器限制为 108 GiB、KV 固定 6 GiB。正式测试期间 head/worker `MemAvailable` 稳定约 18/22 GiB，swap 相对 guard 起点没有增长。

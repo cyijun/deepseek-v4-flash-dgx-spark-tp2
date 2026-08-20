@@ -9,10 +9,10 @@
 ```mermaid
 flowchart TD
   B[vllm/vllm-openai:v0.27.1\npinned manifest] --> I[ARM64 runtime image]
-  V[cyijun/vllm\n7e64417] --> C[deterministic build context]
+  V[cyijun/vllm\n2db2051] --> C[deterministic build context]
   F[cyijun/flashinfer\n6398edb] --> C
   C --> I
-  X[b12x 1.2.4] --> I
+  X[b12x 1.2.4 deps\n0.15.3 runtime] --> I
   I --> R[GHCR image + provenance]
 ```
 
@@ -52,6 +52,6 @@ flowchart TD
 
 ## 容器 Action
 
-`build-container.yml` 仅接受手工触发或 `v*` tag，不接受 pull request。它运行在 `[self-hosted, linux, ARM64, dgx-spark]` runner 上，生成 `linux/arm64` image、OCI labels 和 build provenance，并可推送 GHCR。
+`build-container.yml` 仅接受手工触发或 `v*` tag，不接受 pull request。标准 `ubuntu-24.04-arm` job 负责 checkout 两个 fork 的 immutable commit、校验版本并打包 deterministic context；随后 `ARM64_BUILD_RUNNER` 指定的 runner 生成 `linux/arm64` image、OCI labels 和 build provenance，并可推送 GHCR。未配置该 repository variable 时，默认使用 `dgx-spark` 自托管标签。
 
-不使用标准 GitHub ARM64 runner打包 CUDA 镜像，是因为其约 14 GB storage 不能可靠容纳 vLLM base image、build context 和 BuildKit cache。`validate.yml` 则可以安全地使用 `ubuntu-24.04-arm` 做 shell/JSON/source-contract 检查。
+不使用标准 GitHub ARM64 runner完成 CUDA 镜像 build，是因为其约 14 GB storage 不能可靠容纳约 20.6 GB 的 vLLM base image、build context 和 BuildKit cache。`validate.yml` 和 context preparation 可以安全地使用 `ubuntu-24.04-arm`。如果组织已配置 150 GB 或更大的 GitHub-hosted ARM larger runner，把其自定义 label 写入 `ARM64_BUILD_RUNNER` 即可替代 DGX Spark build runner。

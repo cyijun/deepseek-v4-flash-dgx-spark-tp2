@@ -9,7 +9,7 @@ The chart map is:
 
 | Section | Question | Form | Dataset | Claim |
 | --- | --- | --- | --- | --- |
-| Official control | How close is the aligned hot control to Anemll? | Two-category bar | `official_control` | 97.20 vs 108.18 output tok/s |
+| Official control | Does the bounded legacy-B12X optimization reach Anemll's hot C6 band? | Four-category bar | `official_control` | 106.07 Anemll; 104.35 chunk-only; 106.39/104.94 optimized repeats |
 | Earlier format study | How does the true-FP4 deployment scale by concurrency? | Grouped bars | `throughput_long` | Both acceptance and iteration rate contributed to the older gap |
 
 Both visuals use discrete comparison bars because the evidence consists of benchmark anchor runs, not a sufficiently dense time series.

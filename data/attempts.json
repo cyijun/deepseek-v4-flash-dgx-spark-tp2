@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-08-19T00:00:00+08:00",
+  "updated_at": "2026-08-20T20:00:00+08:00",
   "hardware": "2x NVIDIA DGX Spark / GB10 / SM121",
   "serving_envelope": {
     "tensor_parallel": 2,
@@ -102,7 +102,7 @@
       "category": "routing",
       "change": "Wrote DeepSeek-V4 shared-expert slots directly from the existing eight-lane top-k kernel, removing two torch.cat calls per MoE invocation.",
       "result": "The routing step fell from about 30.4 to 12.4 microseconds at 6, 30, and 36 tokens, a roughly 59% reduction. Seven CUDA unit tests passed.",
-      "decision": "Retain commit 7e64417. Full TP=2 end-to-end benefit remains unmeasured."
+      "decision": "Retain commit 7e64417. It is included in the later fully validated TP=2 runtime."
     },
     {
       "id": "optimized-image-tp2-startup",
@@ -112,6 +112,33 @@
       "change": "Started the fused-routing image with TP=2, C6, fixed 6 GiB KV, and the 108 GiB cgroup.",
       "result": "The startup guard stopped the run when head swap growth reached 654 MiB, above the 512 MiB limit. Both containers were removed and no throughput result was recorded.",
       "decision": "No post-optimization end-to-end claim. Re-run only when both hosts pass the 110 GiB MemAvailable preflight and startup remains within the same guardrails."
+    },
+    {
+      "id": "legacy-b12x-packed-runtime",
+      "date": "2026-08-20",
+      "status": "completed",
+      "category": "moe-runtime",
+      "change": "Added a compatibility lane for Anemll's b12x 0.15.3 packed W4A16 TP-MoE API with caller-owned scratch and in-place checkpoint weight preparation.",
+      "result": "The official MXFP4 checkpoint used the same packed b12x runtime family as Anemll while keeping the current vLLM scheduler, model runner, and attention stack.",
+      "decision": "Use this lane for the aligned official-checkpoint comparison; keep current b12x 1.2.4 behavior unchanged when the legacy runtime is absent."
+    },
+    {
+      "id": "legacy-b12x-prefill-chunking",
+      "date": "2026-08-20",
+      "status": "completed",
+      "category": "moe-runtime",
+      "change": "Split legacy W4A16 launches into at most 1024 routed rows and reused the planned scratch for every chunk.",
+      "result": "The isolated M=1052 layer fell from about 591 ms back to the normal prefill regime; CUDA-graph and M=1025 integration tests passed.",
+      "decision": "Retain commit 023c7ab. It removes the 2048-route-capacity selector cliff without changing the newer runtime path."
+    },
+    {
+      "id": "legacy-b12x-c6-tile",
+      "date": "2026-08-20",
+      "status": "completed",
+      "category": "moe-runtime",
+      "change": "Applied the validated 128x64/128-thread W4A16 tile only for legacy b12x problem M at or below 36.",
+      "result": "Two 180-second C6 runs reached 106.389 and 104.943 output tok/s. Their estimated target batch iterations were 160.35 and 159.38 ms versus Anemll's 160.98 ms; all runs had zero request errors.",
+      "decision": "Retain commit 2db2051 and the M-bounded official preset. Target compute is consistently faster; report output throughput as the same performance band because probabilistic MTP acceptance varied between runs."
     },
     {
       "id": "pipeline-parallel-branch",

@@ -25,10 +25,21 @@ cp config/deployment.env.example config/deployment.env
 
 ### GitHub Action
 
-在 Actions 中手工运行 **Package ARM64 runtime**。建议在 `container-release` environment 配置 owner approval，并将 runner labels 设置为：
+在 Actions 中手工运行 **Package ARM64 runtime**。它先在标准 GitHub-hosted
+`ubuntu-24.04-arm` 上准备 build context；标准 runner 的 14 GB 磁盘小于 vLLM base
+image 的解压尺寸，不能承担最终 Docker build。
+
+建议在 `container-release` environment 配置 owner approval，并给自托管 runner 增加：
 
 ```text
 self-hosted, linux, ARM64, dgx-spark
+```
+
+默认 build job 匹配 `dgx-spark` 标签。如已有 GitHub ARM larger runner（至少 150 GB
+storage），在 repository Actions variable 中设置：
+
+```text
+ARM64_BUILD_RUNNER=<larger-runner-custom-label>
 ```
 
 Action 从 fork checkout `config/versions.env` 中的固定 commit，发布两个 tag：手工 tag 和 `sha-<deployment-commit>`，同时生成 provenance。部署时优先把 GHCR digest 而不是可变 tag 写入 `IMAGE`。
@@ -94,7 +105,7 @@ curl http://127.0.0.1:8888/v1/chat/completions \
 
 ## 6. GuideLLM C6
 
-复制 `benchmarks/guidellm-c6-template.json`，把 tokenizer snapshot 和 served model 替换为本次配置，然后运行与记录相同的 10-second warmup / 60-second measured window。
+复制 `benchmarks/guidellm-c6-template.json`，把 tokenizer snapshot 和 served model 替换为本次配置，然后运行与最新正式记录相同的 10-second warmup / 180-second measured window。
 
 ```bash
 guidellm run \

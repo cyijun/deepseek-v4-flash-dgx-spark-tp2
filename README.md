@@ -18,9 +18,9 @@
 
 1. 完整 48-shard NVFP4 checkpoint 已在双机 TP=2 跑通，target 使用 FlashInfer B12X，KV 使用真实 288-byte packed NVFP4 DS-MLA row。
 2. NVFP4 权重不代表 decode 阶段必须 W4A4。当前 C6 小 M 场景中，保留 packed NVFP4 权重但用 B12X W4A16 计算比动态 W4A4 更快。
-3. 与 Anemll 最可比的 official-checkpoint hot control 为 **97.20 output tok/s**；Anemll 记录为 **108.18 tok/s**。差距同时包含 5.82% 的接受率差异和 4.82% 的 target-iteration 时间差异。
-4. phase-aligned profile 中，当前 B12X、MHC 和 sparse MLA decode kernel 并不慢于 Anemll。已定位并消除一个独立的 shared-expert route `torch.cat` 热点，路由微基准降低约 59%。
-5. 优化后镜像尚无完整 TP=2 C6 吞吐结果：启动时 swap 增长达到 654 MiB，安全保护按 512 MiB 阈值主动停止。因此本仓库不声称端到端提速。
+3. 最新的 180 秒 official-checkpoint C6 对照中，定制 runtime 首跑达到 **106.39 output tok/s**，高于 Anemll 的 **106.07 tok/s**；复跑为 **104.94 tok/s**。两次计算迭代率均更快，端到端差异主要由 speculative acceptance 波动决定。
+4. 关键修复是把 b12x 0.15.3 的大 prefill launch 分块到 1024 routed rows，并在 C6 decode 的 M≤36 范围使用实测更快的 `128×64/128-thread` W4A16 tile。新 tile 两次 estimated target batch iteration 分别为 160.35 ms 和 159.38 ms，Anemll 为 160.98 ms。
+5. phase-aligned profile 中，当前 B12X、MHC 和 sparse MLA decode kernel 并不慢于 Anemll。shared-expert route 的两次 `torch.cat` 也已消除，路由微基准降低约 59%。
 
 完整证据见 [HTML 技术报告](reports/flow-comparison-report.html)、[实验时间线](docs/experiments.md) 和 [机器可读尝试记录](data/attempts.json)。
 
@@ -28,7 +28,7 @@
 
 部署仓库不复制维护定制框架源码，而是在构建时 checkout 以下固定 commit：
 
-- vLLM：[cyijun/vllm@7e64417](https://github.com/cyijun/vllm/commit/7e64417e4af6d0079a0a9bfb999dd667f7263a58)
+- vLLM：[cyijun/vllm@2db2051](https://github.com/cyijun/vllm/commit/2db20513ab9d73e61aecabb3ab83e8f60644718e)
   （[开发分支](https://github.com/cyijun/vllm/tree/feat/deepseek-v4-nvfp4-ds-mla)）
 - FlashInfer：[cyijun/flashinfer@6398edb](https://github.com/cyijun/flashinfer/commit/6398edbbc6796d81781bd54827be860b65d8f38b)
   （[开发分支](https://github.com/cyijun/flashinfer/tree/agent/apply-swiglu-limit-to-silu-b12x)）
@@ -70,7 +70,7 @@ $EDITOR config/deployment.env
 
 ### 2. 获取镜像
 
-推荐从 GitHub 的 **Package ARM64 runtime** workflow 手动构建并推送 GHCR，然后将不可变 digest 写入 `config/deployment.env`。
+推荐从 GitHub 的 **Package ARM64 runtime** workflow 手动构建并推送 GHCR，然后将不可变 digest 写入 `config/deployment.env`。workflow 用标准 `ubuntu-24.04-arm` 准备并校验确定性 build context；完整 Docker build 仍使用受信任的自托管 DGX Spark runner，因为标准云 ARM runner 只有 14 GB 磁盘，而当前 base/final image 解压后约为 20.6/22.3 GB。组织版 4-core/150 GB ARM larger runner也可替代自托管 build job。
 
 本机构建：
 
@@ -123,7 +123,7 @@ DGX Spark 的 GPU 和 CPU 共用系统 DRAM。`nvidia-smi` 的传统显存视图
 
 | 路径 | 内容 |
 | --- | --- |
-| `.github/workflows/build-container.yml` | 自托管 ARM64 runner 上构建、签名并推送 GHCR |
+| `.github/workflows/build-container.yml` | 云 ARM runner 打包源码上下文，自托管/large ARM runner 构建、签名并推送 GHCR |
 | `container/` | 基于 vLLM 0.27.1 ARM64 镜像的源码 overlay 配方 |
 | `scripts/` | 构建、TP=2 部署、运行保护、诊断和微基准 |
 | `config/` | 固定源码版本和本地部署配置模板 |

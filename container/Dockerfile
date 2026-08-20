@@ -1,4 +1,7 @@
 ARG BASE_IMAGE=vllm/vllm-openai:v0.27.1@sha256:0a51ea5b4ae2dc5d81890e5173f54203d2a3ae0cfffe51b8fd2afd4391bfd967
+ARG B12X_SOURCE_IMAGE=ghcr.io/anemll/dspark-vllm-gx10:0.1.1
+
+FROM ${B12X_SOURCE_IMAGE} AS legacy_b12x_source
 FROM ${BASE_IMAGE}
 
 ARG B12X_VERSION=1.2.4
@@ -9,7 +12,8 @@ LABEL org.opencontainers.image.title="DeepSeek V4 Flash TP=2 runtime for DGX Spa
       org.opencontainers.image.source="https://github.com/cyijun/deepseek-v4-flash-dgx-spark-tp2" \
       org.opencontainers.image.description="vLLM 0.27.1 with linked DeepSeek V4, NVFP4 DS-MLA, and FlashInfer B12X SM121 adaptations" \
       io.deepseek-v4-dgx-spark.vllm-source-commit="${VLLM_SOURCE_COMMIT}" \
-      io.deepseek-v4-dgx-spark.flashinfer-source-commit="${FLASHINFER_SOURCE_COMMIT}"
+      io.deepseek-v4-dgx-spark.flashinfer-source-commit="${FLASHINFER_SOURCE_COMMIT}" \
+      io.deepseek-v4-dgx-spark.b12x-runtime="0.15.3-anemll"
 
 # The validated SM121 B12X stack uses this b12x/CUTLASS DSL pairing.
 RUN uv pip install --system \
@@ -28,6 +32,18 @@ COPY flashinfer/mla/_sparse_mla_sm120.py /usr/local/lib/python3.12/dist-packages
 COPY flashinfer_data/csrc/ /usr/local/lib/python3.12/dist-packages/flashinfer/data/csrc/
 COPY flashinfer_data/include/ /usr/local/lib/python3.12/dist-packages/flashinfer/data/include/
 
+# The official MXFP4 checkpoint is faster with Anemll's packed W4A16 runtime.
+# Keep the 1.2.4 dependency stack above, then replace only the Python package.
+RUN rm -rf \
+      /usr/local/lib/python3.12/dist-packages/b12x \
+      /usr/local/lib/python3.12/dist-packages/b12x-*.dist-info
+COPY --from=legacy_b12x_source \
+  /usr/local/lib/python3.12/dist-packages/b12x/ \
+  /usr/local/lib/python3.12/dist-packages/b12x/
+COPY --from=legacy_b12x_source \
+  /usr/local/lib/python3.12/dist-packages/b12x-0.15.3.dist-info/ \
+  /usr/local/lib/python3.12/dist-packages/b12x-0.15.3.dist-info/
+
 # The base wheel contains an older AOT sparse-MLA module. Preserve it for
 # diagnosis but force this operator to JIT from the matching pinned sources.
 RUN sparse_mla_aot=/usr/local/lib/python3.12/dist-packages/flashinfer_jit_cache/jit_cache/sparse_mla_sm120/sparse_mla_sm120.so \
@@ -45,4 +61,4 @@ RUN python3 -m compileall -q \
       /usr/local/lib/python3.12/dist-packages/flashinfer/autotuner \
       /usr/local/lib/python3.12/dist-packages/flashinfer/fused_moe/cute_dsl \
       /usr/local/lib/python3.12/dist-packages/flashinfer/mla \
-    && python3 -c "import b12x, flashinfer, importlib.metadata, vllm; from flashinfer.fused_moe.cute_dsl.blackwell_sm12x.moe_direct_micro_kernel import build_direct_micro_kernel; print(vllm.__version__, flashinfer.__version__, importlib.metadata.version('b12x'), build_direct_micro_kernel.__name__)"
+    && python3 -c "import b12x, flashinfer, importlib.metadata, vllm; from b12x.integration.tp_moe import b12x_moe_fp4; assert importlib.metadata.version('b12x') == '0.15.3'; print(vllm.__version__, flashinfer.__version__, importlib.metadata.version('b12x'), b12x_moe_fp4.__name__)"

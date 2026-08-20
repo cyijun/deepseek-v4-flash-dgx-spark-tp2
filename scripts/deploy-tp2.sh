@@ -49,6 +49,12 @@ TARGET_MOE_BACKEND="${TARGET_MOE_BACKEND:-flashinfer_b12x}"
 # This keeps the weight footprint at FP4 while avoiding per-token activation
 # quantization in every target-model expert layer.
 B12X_NVFP4_W4A16="${B12X_NVFP4_W4A16-1}"
+# Use b12x's caller-owned-scratch path for native MXFP4 checkpoints. The
+# selector controls are ignored by newer b12x runtimes and bounded to decode M.
+B12X_STANDALONE_MXFP4="${B12X_STANDALONE_MXFP4-}"
+B12X_W4A16_FORCE_TILE_CONFIG="${B12X_W4A16_FORCE_TILE_CONFIG-}"
+B12X_W4A16_FORCE_BLOCKS_PER_SM="${B12X_W4A16_FORCE_BLOCKS_PER_SM-}"
+B12X_W4A16_FORCE_BLOCKS_MAX_M="${B12X_W4A16_FORCE_BLOCKS_MAX_M-36}"
 LINEAR_BACKEND="${LINEAR_BACKEND:-auto}"
 ATTENTION_BACKEND="${ATTENTION_BACKEND:-auto}"
 DISABLE_CUSTOM_ALL_REDUCE="${DISABLE_CUSTOM_ALL_REDUCE:-1}"
@@ -208,7 +214,7 @@ echo "  vllm_source=$vllm_label"
 echo "  flashinfer_source=$flashinfer_label"
 echo "  RoCEv2 GID head=$head_gid worker=$worker_gid"
 echo "  memory budget: measured runtime=89.2 GiB/node before KV, KV=${KV_CACHE_MEMORY_BYTES:-auto} bytes, container<=${CONTAINER_MEMORY_LIMIT}, host reserve>=${MIN_RUNTIME_AVAILABLE_GIB} GiB, swap growth<=${MAX_RUNTIME_SWAP_GROWTH_MIB} MiB"
-echo "  bootstrap: tp=${TENSOR_PARALLEL_SIZE}, pp=${PIPELINE_PARALLEL_SIZE}, max_model_len=${MAX_MODEL_LEN}, gpu_memory_utilization=${GPU_MEMORY_UTILIZATION}, kv_cache_dtype=${KV_CACHE_DTYPE}, max_num_batched_tokens=${MAX_NUM_BATCHED_TOKENS}, max_cudagraph_capture_size=${MAX_CUDAGRAPH_CAPTURE_SIZE}, cudagraph_mode=${CUDAGRAPH_MODE}, cudagraph_capture_sizes=${CUDAGRAPH_CAPTURE_SIZES}, cudagraph_eager_sizes=${CUDAGRAPH_EAGER_SIZES}, autotune=${ENABLE_FLASHINFER_AUTOTUNE}, enforce_eager=${ENFORCE_EAGER}, deep_gemm=${VLLM_USE_DEEP_GEMM}, target_w4a16=${B12X_NVFP4_W4A16}, target_moe_backend=${TARGET_MOE_BACKEND}, draft_moe_backend=${DRAFT_MOE_BACKEND}, linear_backend=${LINEAR_BACKEND}, attention_backend=${ATTENTION_BACKEND}, default_chat_template_kwargs=${DEFAULT_CHAT_TEMPLATE_KWARGS:-native}"
+echo "  bootstrap: tp=${TENSOR_PARALLEL_SIZE}, pp=${PIPELINE_PARALLEL_SIZE}, max_model_len=${MAX_MODEL_LEN}, gpu_memory_utilization=${GPU_MEMORY_UTILIZATION}, kv_cache_dtype=${KV_CACHE_DTYPE}, max_num_batched_tokens=${MAX_NUM_BATCHED_TOKENS}, max_cudagraph_capture_size=${MAX_CUDAGRAPH_CAPTURE_SIZE}, cudagraph_mode=${CUDAGRAPH_MODE}, cudagraph_capture_sizes=${CUDAGRAPH_CAPTURE_SIZES}, cudagraph_eager_sizes=${CUDAGRAPH_EAGER_SIZES}, autotune=${ENABLE_FLASHINFER_AUTOTUNE}, enforce_eager=${ENFORCE_EAGER}, deep_gemm=${VLLM_USE_DEEP_GEMM}, target_w4a16=${B12X_NVFP4_W4A16}, standalone_mxfp4=${B12X_STANDALONE_MXFP4:-0}, b12x_tile=${B12X_W4A16_FORCE_TILE_CONFIG:-auto}, b12x_tile_max_m=${B12X_W4A16_FORCE_BLOCKS_MAX_M:-default}, target_moe_backend=${TARGET_MOE_BACKEND}, draft_moe_backend=${DRAFT_MOE_BACKEND}, linear_backend=${LINEAR_BACKEND}, attention_backend=${ATTENTION_BACKEND}, default_chat_template_kwargs=${DEFAULT_CHAT_TEMPLATE_KWARGS:-native}"
 
 common_vllm_args=(
   --tensor-parallel-size "$TENSOR_PARALLEL_SIZE"
@@ -339,6 +345,30 @@ common_docker_args=(
 
 if [[ -n "$B12X_NVFP4_W4A16" ]]; then
   common_docker_args+=(--env "VLLM_B12X_NVFP4_W4A16=${B12X_NVFP4_W4A16}")
+fi
+
+if [[ -n "$B12X_STANDALONE_MXFP4" ]]; then
+  common_docker_args+=(
+    --env "VLLM_B12X_STANDALONE_MXFP4=${B12X_STANDALONE_MXFP4}"
+  )
+fi
+
+if [[ -n "$B12X_W4A16_FORCE_TILE_CONFIG" ]]; then
+  common_docker_args+=(
+    --env "VLLM_B12X_W4A16_FORCE_TILE_CONFIG=${B12X_W4A16_FORCE_TILE_CONFIG}"
+  )
+fi
+
+if [[ -n "$B12X_W4A16_FORCE_BLOCKS_PER_SM" ]]; then
+  common_docker_args+=(
+    --env "VLLM_B12X_W4A16_FORCE_BLOCKS_PER_SM=${B12X_W4A16_FORCE_BLOCKS_PER_SM}"
+  )
+fi
+
+if [[ -n "$B12X_W4A16_FORCE_BLOCKS_MAX_M" ]]; then
+  common_docker_args+=(
+    --env "VLLM_B12X_W4A16_FORCE_BLOCKS_MAX_M=${B12X_W4A16_FORCE_BLOCKS_MAX_M}"
+  )
 fi
 
 if [[ -n "$PROFILE_DIR" ]]; then

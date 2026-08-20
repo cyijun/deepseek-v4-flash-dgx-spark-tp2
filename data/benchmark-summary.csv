@@ -6,3 +6,7 @@ target_w4a4_b12x_draft,NVFP4_abliterated,CUTLASS_W4A4,B12X_W4A16,NVFP4_288B,6,68
 official_aligned_hot,official_FP8_MXFP4,B12X_W4A16,B12X_W4A16,FP8_DS_MLA_584B,6,97.2040,2.7059,167.03,completed
 anemll_reference,official_FP8_MXFP4,B12X_W4A16,B12X_W4A16,FP8_DS_MLA_584B,6,108.1837,2.8730,159.34,reference
 optimized_shared_route,official_FP8_MXFP4,B12X_W4A16,B12X_W4A16,FP8_DS_MLA_584B,6,,,,safety_stopped_before_health
+anemll_reference_180s,official_FP8_MXFP4,B12X_W4A16,B12X_W4A16,FP8_DS_MLA_584B,6,106.0659,2.8458,160.98,reference
+legacy_b12x_chunk1024_180s,official_FP8_MXFP4,B12X_W4A16,B12X_W4A16,FP8_DS_MLA_584B,6,104.3497,2.8084,161.48,completed
+legacy_b12x_tile128x64_180s_run1,official_FP8_MXFP4,B12X_W4A16,B12X_W4A16,FP8_DS_MLA_584B,6,106.3895,2.8432,160.35,completed
+legacy_b12x_tile128x64_180s_run2,official_FP8_MXFP4,B12X_W4A16,B12X_W4A16,FP8_DS_MLA_584B,6,104.9433,2.7877,159.38,completed

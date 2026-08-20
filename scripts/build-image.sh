@@ -19,7 +19,6 @@ die() {
 
 command -v docker >/dev/null || die "docker is required"
 command -v git >/dev/null || die "git is required"
-command -v rsync >/dev/null || die "rsync is required"
 
 task_dir="$(mktemp -d)"
 trap 'rm -rf -- "$task_dir"' EXIT
@@ -54,6 +53,7 @@ docker build \
   --platform linux/arm64 \
   --build-arg "BASE_IMAGE=$BASE_IMAGE" \
   --build-arg "B12X_VERSION=$B12X_VERSION" \
+  --build-arg "B12X_SOURCE_IMAGE=$B12X_SOURCE_IMAGE" \
   --build-arg "VLLM_SOURCE_COMMIT=$vllm_commit" \
   --build-arg "FLASHINFER_SOURCE_COMMIT=$flashinfer_commit" \
   --tag "$IMAGE" \

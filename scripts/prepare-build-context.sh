@@ -19,22 +19,20 @@ die() {
 [[ -f "$VLLM_SOURCE/vllm/config/vllm.py" ]] || die "invalid vLLM checkout: $VLLM_SOURCE"
 [[ -f "$FLASHINFER_SOURCE/flashinfer/fused_moe/cute_dsl/blackwell_sm12x/moe_activation.py" ]] || \
   die "invalid FlashInfer checkout: $FLASHINFER_SOURCE"
-command -v rsync >/dev/null || die "rsync is required"
+command -v tar >/dev/null || die "tar is required"
 
 if [[ -e "$OUTPUT_DIR" ]] && [[ -n "$(find "$OUTPUT_DIR" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" ]]; then
   die "output directory must be absent or empty: $OUTPUT_DIR"
 fi
 
 mkdir -p \
-  "$OUTPUT_DIR/vllm" \
-  "$OUTPUT_DIR/flashinfer" \
   "$OUTPUT_DIR/flashinfer_data/csrc" \
   "$OUTPUT_DIR/flashinfer_data/include/flashinfer/attention/sparse_mla_sm120"
 
 cp "$ROOT_DIR/container/Dockerfile" "$OUTPUT_DIR/Dockerfile"
 cp "$ROOT_DIR/container/.dockerignore" "$OUTPUT_DIR/.dockerignore"
-rsync -a --exclude '__pycache__/' --exclude '*.pyc' "$VLLM_SOURCE/vllm/" "$OUTPUT_DIR/vllm/"
-rsync -a --exclude '__pycache__/' --exclude '*.pyc' "$FLASHINFER_SOURCE/flashinfer/" "$OUTPUT_DIR/flashinfer/"
+git -C "$VLLM_SOURCE" archive HEAD vllm | tar -x -C "$OUTPUT_DIR"
+git -C "$FLASHINFER_SOURCE" archive HEAD flashinfer | tar -x -C "$OUTPUT_DIR"
 cp \
   "$FLASHINFER_SOURCE/csrc/sparse_mla_sm120_decode_dsv4.cu" \
   "$FLASHINFER_SOURCE/csrc/sparse_mla_sm120_jit_binding.cu" \

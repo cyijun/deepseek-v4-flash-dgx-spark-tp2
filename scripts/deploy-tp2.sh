@@ -19,6 +19,7 @@ EXPECTED_MODEL_WEIGHT_FILES="${EXPECTED_MODEL_WEIGHT_FILES:-48}"
 SERVED_MODEL="${SERVED_MODEL:-deepseek-v4-flash}"
 
 PULL_IMAGE="${PULL_IMAGE:-0}"
+VERIFY_SOURCE_LABELS="${VERIFY_SOURCE_LABELS:-1}"
 : "${WORKER_HOST:?set WORKER_HOST, for example user@dgx-spark-worker.local}"
 HEAD_IP="${HEAD_IP:-10.100.32.1}"
 WORKER_IP="${WORKER_IP:-10.100.32.2}"
@@ -97,6 +98,14 @@ VLLM_USE_DEEP_GEMM="${VLLM_USE_DEEP_GEMM:-1}"
 # The profiler itself is enabled with /start_profile and should only be used for
 # a few decode iterations because traces can grow quickly.
 PROFILE_DIR="${PROFILE_DIR:-}"
+# Optional Nsight Systems application trace. The host installation is mounted
+# read-only; collection stays delayed until nsys-capture.sh starts both ranks.
+NSYS_OUTPUT_DIR="${NSYS_OUTPUT_DIR:-}"
+NSYS_HOST_ROOT="${NSYS_HOST_ROOT:-/opt/nvidia/nsight-systems/2025.3.2}"
+NSYS_SESSION_PREFIX="${NSYS_SESSION_PREFIX:-dsv4}"
+NSYS_TRACE="${NSYS_TRACE:-cuda,nvtx,osrt,cublas,cudnn}"
+NSYS_CUDA_GRAPH_TRACE="${NSYS_CUDA_GRAPH_TRACE:-node}"
+NSYS_OSRT_THRESHOLD_NS="${NSYS_OSRT_THRESHOLD_NS:-10000}"
 
 LOG_DIR="${LOG_DIR:-$ROOT_DIR/logs}"
 FLASHINFER_CACHE_DIR="${FLASHINFER_CACHE_DIR:-$ROOT_DIR/.cache/flashinfer}"
@@ -168,6 +177,18 @@ if [[ -n "$PROFILE_DIR" ]]; then
   mkdir -p "$PROFILE_DIR"
   run_on_worker mkdir -p "$PROFILE_DIR"
 fi
+if [[ -n "$NSYS_OUTPUT_DIR" ]]; then
+  [[ "$NSYS_OUTPUT_DIR" == /* ]] || die "NSYS_OUTPUT_DIR must be an absolute path"
+  [[ "$NSYS_SESSION_PREFIX" =~ ^[A-Za-z][A-Za-z0-9_-]*$ ]] || die \
+    "NSYS_SESSION_PREFIX must start with a letter and contain only letters, digits, _ or -"
+  [[ -x "$NSYS_HOST_ROOT/bin/nsys" ]] || die \
+    "Nsight Systems CLI is missing: $NSYS_HOST_ROOT/bin/nsys"
+  worker_nsys="$(run_on_worker test -x "$NSYS_HOST_ROOT/bin/nsys" && echo yes)"
+  [[ "$worker_nsys" == "yes" ]] || die \
+    "worker Nsight Systems CLI is missing: $NSYS_HOST_ROOT/bin/nsys"
+  mkdir -p "$NSYS_OUTPUT_DIR"
+  run_on_worker mkdir -p "$NSYS_OUTPUT_DIR"
+fi
 
 head_available_kib="$(available_memory_kib)"
 worker_available_kib="$(worker_available_memory_kib)"
@@ -190,14 +211,28 @@ worker_shards="$(run_on_worker find "$model_source_path" -maxdepth 1 -name 'mode
 [[ "$worker_shards" == "$EXPECTED_MODEL_WEIGHT_FILES" ]] || die \
   "worker has ${worker_shards}/${EXPECTED_MODEL_WEIGHT_FILES} model weight files"
 
-vllm_label="$(docker image inspect --format '{{index .Config.Labels "io.deepseek-v4-dgx-spark.vllm-source-commit"}}' "$IMAGE")"
-worker_vllm_label="$(run_on_worker docker image inspect --format '{{index .Config.Labels "io.deepseek-v4-dgx-spark.vllm-source-commit"}}' "$IMAGE")"
-[[ "$vllm_label" == "$worker_vllm_label" ]] || die "vLLM source labels differ"
-[[ "$vllm_label" == "$VLLM_REF" ]] || die "image vLLM source is $vllm_label, expected $VLLM_REF"
-flashinfer_label="$(docker image inspect --format '{{index .Config.Labels "io.deepseek-v4-dgx-spark.flashinfer-source-commit"}}' "$IMAGE")"
-worker_flashinfer_label="$(run_on_worker docker image inspect --format '{{index .Config.Labels "io.deepseek-v4-dgx-spark.flashinfer-source-commit"}}' "$IMAGE")"
-[[ "$flashinfer_label" == "$worker_flashinfer_label" ]] || die "FlashInfer source labels differ"
-[[ "$flashinfer_label" == "$FLASHINFER_REF" ]] || die "image FlashInfer source is $flashinfer_label, expected $FLASHINFER_REF"
+case "$VERIFY_SOURCE_LABELS" in
+  1)
+    vllm_label="$(docker image inspect --format '{{index .Config.Labels "io.deepseek-v4-dgx-spark.vllm-source-commit"}}' "$IMAGE")"
+    worker_vllm_label="$(run_on_worker docker image inspect --format '{{index .Config.Labels "io.deepseek-v4-dgx-spark.vllm-source-commit"}}' "$IMAGE")"
+    [[ "$vllm_label" == "$worker_vllm_label" ]] || die "vLLM source labels differ"
+    [[ "$vllm_label" == "$VLLM_REF" ]] || die "image vLLM source is $vllm_label, expected $VLLM_REF"
+    flashinfer_label="$(docker image inspect --format '{{index .Config.Labels "io.deepseek-v4-dgx-spark.flashinfer-source-commit"}}' "$IMAGE")"
+    worker_flashinfer_label="$(run_on_worker docker image inspect --format '{{index .Config.Labels "io.deepseek-v4-dgx-spark.flashinfer-source-commit"}}' "$IMAGE")"
+    [[ "$flashinfer_label" == "$worker_flashinfer_label" ]] || die "FlashInfer source labels differ"
+    [[ "$flashinfer_label" == "$FLASHINFER_REF" ]] || die "image FlashInfer source is $flashinfer_label, expected $FLASHINFER_REF"
+    ;;
+  0)
+    head_image_id="$(docker image inspect --format '{{.Id}}' "$IMAGE")"
+    worker_image_id="$(run_on_worker docker image inspect --format '{{.Id}}' "$IMAGE")"
+    [[ "$head_image_id" == "$worker_image_id" ]] || die \
+      "image IDs differ: head=$head_image_id worker=$worker_image_id"
+    vllm_label="unverified-stock-image"
+    flashinfer_label="unverified-stock-image"
+    echo "  source-label verification disabled; identical image ID=$head_image_id"
+    ;;
+  *) die "VERIFY_SOURCE_LABELS must be 0 or 1" ;;
+esac
 
 head_gid="$(detect_rocev2_gid "$HCA" "$NIC")" || die "cannot find head IPv4 RoCEv2 GID"
 worker_gid="$("${SSH[@]}" "$WORKER_HOST" "$remote_gid_command" 2>/dev/null)"
@@ -340,7 +375,6 @@ common_docker_args=(
   --env "NCCL_IGNORE_CPU_AFFINITY=${NCCL_IGNORE_CPU_AFFINITY}"
   --env NCCL_DEBUG=WARN
   --env TORCH_NCCL_ASYNC_ERROR_HANDLING=1
-  --entrypoint vllm
 )
 
 if [[ -n "$B12X_NVFP4_W4A16" ]]; then
@@ -375,6 +409,39 @@ if [[ -n "$PROFILE_DIR" ]]; then
   common_docker_args+=(--mount "type=bind,src=${PROFILE_DIR},dst=/profiles")
 fi
 
+container_entrypoint=(--entrypoint vllm)
+worker_command=(serve "$MODEL_PATH")
+head_command=(serve "$MODEL_PATH")
+if [[ -n "$NSYS_OUTPUT_DIR" ]]; then
+  common_docker_args+=(
+    --mount "type=bind,src=${NSYS_HOST_ROOT},dst=/opt/nsys,readonly"
+    --mount "type=bind,src=${NSYS_OUTPUT_DIR},dst=/nsys-output"
+  )
+  container_entrypoint=(--entrypoint /opt/nsys/bin/nsys)
+  nsys_common_args=(
+    profile
+    --start-later=true
+    --trace="$NSYS_TRACE"
+    --sample=none
+    --cpuctxsw=process-tree
+    --cuda-graph-trace="$NSYS_CUDA_GRAPH_TRACE"
+    --osrt-threshold="$NSYS_OSRT_THRESHOLD_NS"
+    --force-overwrite=true
+  )
+  worker_command=(
+    "${nsys_common_args[@]}"
+    --session-new="${NSYS_SESSION_PREFIX}rank1"
+    --output="/nsys-output/${NSYS_SESSION_PREFIX}-rank1"
+    vllm serve "$MODEL_PATH"
+  )
+  head_command=(
+    "${nsys_common_args[@]}"
+    --session-new="${NSYS_SESSION_PREFIX}rank0"
+    --output="/nsys-output/${NSYS_SESSION_PREFIX}-rank0"
+    vllm serve "$MODEL_PATH"
+  )
+fi
+
 # Invoked indirectly through the EXIT trap below.
 # shellcheck disable=SC2317,SC2329
 cleanup_on_error() {
@@ -400,9 +467,10 @@ run_on_worker docker run -d \
   --name "$WORKER_CONTAINER" \
   --label io.deepseek-v4-dgx-spark.role=worker \
   "${common_docker_args[@]}" \
+  "${container_entrypoint[@]}" \
   --env "VLLM_HOST_IP=${WORKER_IP}" \
   --env "NCCL_IB_GID_INDEX=${worker_gid}" \
-  "$IMAGE" serve "$MODEL_PATH" \
+  "$IMAGE" "${worker_command[@]}" \
   "${common_vllm_args[@]}" \
   --node-rank 1 \
   --headless
@@ -412,9 +480,10 @@ docker run -d \
   --name "$HEAD_CONTAINER" \
   --label io.deepseek-v4-dgx-spark.role=head \
   "${common_docker_args[@]}" \
+  "${container_entrypoint[@]}" \
   --env "VLLM_HOST_IP=${HEAD_IP}" \
   --env "NCCL_IB_GID_INDEX=${head_gid}" \
-  "$IMAGE" serve "$MODEL_PATH" \
+  "$IMAGE" "${head_command[@]}" \
   "${common_vllm_args[@]}" \
   --node-rank 0 \
   --host 127.0.0.1 \

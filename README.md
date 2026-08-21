@@ -206,8 +206,18 @@ inspect dumps are intentionally excluded.
    decode kernels are not slower than Anemll's. Removing two `torch.cat`
    operations from shared-expert routing reduced the routing microbenchmark by
    about 59%.
+6. A synchronized two-rank Nsight capture puts B12X at 51–53% of summed GPU
+   kernel duration. The NVFP4 run launched 1.93× as many kernels as the
+   official run, while RoCE carried only 2.46–3.08 Gbit/s per direction on the
+   200 Gbit/s link with no new congestion or reliability counters.
+7. The cached stock vLLM nightly can serve the official checkpoint only after
+   disabling MTP: its stable C6×256 mean was **85.84 output tok/s**. The adapted
+   official MTP-5 lane averaged **124.86 tok/s** on the same short-prompt
+   workload. This 45.5% difference is a system result dominated by working
+   speculation, not a B12X-versus-DeepGEMM kernel claim.
 
 See the [HTML technical report](reports/flow-comparison-report.html),
+[full Nsight report](docs/nsight-profile.md),
 [experiment timeline](docs/experiments.md), and
 [machine-readable attempt log](data/attempts.json) for the evidence.
 
@@ -278,6 +288,7 @@ Existing clean checkouts can be supplied with `VLLM_SOURCE` and
 - [Source-version contract](docs/source-contract.md)
 - [Unified-memory safety policy](docs/memory-safety.md)
 - [End-to-end reproduction](docs/reproduction.md)
+- [Two-rank Nsight and stock-nightly comparison](docs/nsight-profile.md)
 
 ## Scope
 

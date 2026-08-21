@@ -184,8 +184,16 @@ NVFP4 preset 默认模型名为 `deepseek-v4-flash-nvfp4`。如果改过 `SERVED
    iteration 分别为 160.35 ms 和 159.38 ms，Anemll 为 160.98 ms。
 5. phase-aligned profile 显示，当前 B12X、MHC 和 sparse MLA decode kernel 不比 Anemll 慢。
    shared-expert route 的两次 `torch.cat` 也已消除，路由微基准下降约 59%。
+6. 双 rank 同步 Nsight 采集显示，B12X 占累计 GPU kernel 时间的 51–53%。NVFP4
+   trace 的 kernel 数是官方版的 1.93 倍；200 Gbit/s RoCE 链路每方向只有
+   2.46–3.08 Gbit/s，拥塞和可靠性 counter 均无新增。
+7. 缓存的原版 vLLM nightly 只有关闭 MTP 后才能推理官方 checkpoint，稳定 C6×256
+   均值为 **85.84 output tok/s**；适配版官方 MTP-5 链路在相同短 prompt workload
+   中均值为 **124.86 tok/s**。45.5% 的差异主要来自可用的 speculative decoding，
+   不能解释成 B12X 单 kernel 比 DeepGEMM 快 45.5%。
 
-完整证据见 [HTML 技术报告](reports/flow-comparison-report.html)、[实验时间线](docs/experiments.md)
+完整证据见 [HTML 技术报告](reports/flow-comparison-report.html)、
+[双 rank Nsight 报告](docs/nsight-profile.zh-CN.md)、[实验时间线](docs/experiments.md)
 和[机器可读尝试记录](data/attempts.json)。
 
 ## 源码联动
@@ -249,6 +257,7 @@ flowchart LR
 - [源码版本契约](docs/source-contract.md)
 - [统一内存安全策略](docs/memory-safety.md)
 - [端到端复现步骤](docs/reproduction.md)
+- [双 rank Nsight 与原版 nightly 对照](docs/nsight-profile.zh-CN.md)
 
 ## 适用范围
 

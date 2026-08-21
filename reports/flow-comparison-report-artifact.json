@@ -4,8 +4,8 @@
     "version": 1,
     "surface": "report",
     "title": "DeepSeek V4 Flash Runtime and Format Findings",
-    "description": "Code-, log-, profile-, and benchmark-backed comparison of Anemll 0.1.1, the vLLM 0.27 NVFP4/true-FP4 adaptation, and the optimized legacy-B12X official-checkpoint control on two DGX Sparks.",
-    "generatedAt": "2026-08-20T21:00:00+08:00",
+    "description": "Code-, log-, two-rank Nsight-, and benchmark-backed comparison of Anemll 0.1.1, stock vLLM nightly, the vLLM 0.27 NVFP4/true-FP4 adaptation, and the optimized legacy-B12X official-checkpoint control on two DGX Sparks.",
+    "generatedAt": "2026-08-21T12:52:00+08:00",
     "cards": [
       {
         "id": "c6_gap",
@@ -164,6 +164,58 @@
           "position": "bottom",
           "sort": "spec",
           "title": "Runtime"
+        },
+        "labels": {
+          "values": "auto"
+        },
+        "yAxisTitle": "Output tok/s",
+        "valueFormat": "number",
+        "layout": "full"
+      },
+      {
+        "id": "steady_c6_comparison",
+        "title": "Steady short-prompt C6 output throughput",
+        "subtitle": "Means of three hot C6x256 runs on 2× DGX Spark, TP=2. Stock is target-only because its MTP-5 startup failed; checkpoint and acceptance differences prevent a single-kernel interpretation.",
+        "type": "bar",
+        "intent": "comparison",
+        "question": "What end-to-end throughput is available from the adapted official, adapted NVFP4, and stock nightly lanes that actually start?",
+        "rationale": "Three discrete runtime lanes are best shown as one simple comparison bar chart; exact run values and backend differences remain in the adjacent narrative and source dataset.",
+        "comparisonContext": {
+          "baseline": "Cached unmodified vLLM nightly serving the official checkpoint without MTP",
+          "denominator": "Completed output tokens",
+          "grain": "mean of three hot synchronized C6 runs with 256 requested output tokens per request",
+          "unit": "output tokens per second"
+        },
+        "dataset": "steady_c6",
+        "sourceId": "steady_c6_evidence",
+        "encodings": {
+          "x": {
+            "field": "runtime",
+            "type": "nominal",
+            "label": "Runtime lane"
+          },
+          "y": {
+            "field": "output_tps",
+            "type": "quantitative",
+            "label": "Mean output throughput",
+            "format": "number"
+          },
+          "tooltip": [
+            {
+              "field": "mtp_tokens",
+              "type": "quantitative",
+              "label": "MTP tokens",
+              "format": "number"
+            },
+            {
+              "field": "backend",
+              "type": "nominal",
+              "label": "Target / draft"
+            }
+          ]
+        },
+        "palette": {
+          "kind": "categorical"
         },
         "labels": {
           "values": "auto"
@@ -392,6 +444,111 @@
             "format": "percent"
           }
         ]
+      },
+      {
+        "id": "nsight_kernel_detail",
+        "title": "Two-rank Nsight kernel and utilization detail",
+        "subtitle": "One synchronized C6 batch per checkpoint; summed kernel durations may exceed wall time because streams overlap.",
+        "dataset": "nsight_kernel_detail",
+        "sourceId": "nsight_evidence",
+        "defaultSort": {
+          "field": "profile_rank",
+          "direction": "asc"
+        },
+        "density": "spacious",
+        "layout": "full",
+        "columns": [
+          {
+            "field": "profile_rank",
+            "label": "Profile / rank"
+          },
+          {
+            "field": "kernel_span_ms",
+            "label": "Kernel span, ms",
+            "format": "number"
+          },
+          {
+            "field": "kernel_calls",
+            "label": "Kernel calls",
+            "format": "number"
+          },
+          {
+            "field": "b12x_calls",
+            "label": "B12X calls",
+            "format": "number"
+          },
+          {
+            "field": "b12x_total_ms",
+            "label": "B12X total, ms",
+            "format": "number"
+          },
+          {
+            "field": "b12x_avg_us",
+            "label": "B12X avg, µs",
+            "format": "number"
+          },
+          {
+            "field": "nccl_total_ms",
+            "label": "NCCL total, ms",
+            "format": "number"
+          },
+          {
+            "field": "sm_active_pct",
+            "label": "SM active, %",
+            "format": "number"
+          },
+          {
+            "field": "sm_issue_pct",
+            "label": "SM issue, %",
+            "format": "number"
+          },
+          {
+            "field": "rdma_tx_gbps",
+            "label": "RoCE TX, Gbit/s",
+            "format": "number"
+          }
+        ]
+      },
+      {
+        "id": "stock_compatibility_detail",
+        "title": "Stock vLLM nightly compatibility attempts",
+        "subtitle": "Cached immutable image on both nodes; official checkpoint, TP=2, C6, 6 GiB KV per node, and the same no-swap safety guard.",
+        "dataset": "stock_compatibility",
+        "sourceId": "stock_evidence",
+        "defaultSort": {
+          "field": "lane",
+          "direction": "asc"
+        },
+        "density": "spacious",
+        "layout": "full",
+        "columns": [
+          {
+            "field": "lane",
+            "label": "Lane"
+          },
+          {
+            "field": "mtp_tokens",
+            "label": "MTP",
+            "format": "number"
+          },
+          {
+            "field": "backend",
+            "label": "MoE backend"
+          },
+          {
+            "field": "result",
+            "label": "Result"
+          },
+          {
+            "field": "steady_output_tps",
+            "label": "Steady output tok/s",
+            "format": "number"
+          },
+          {
+            "field": "detail",
+            "label": "Boundary"
+          }
+        ]
       }
     ],
     "sources": [
@@ -399,19 +556,33 @@
         "id": "reviewed_evidence",
         "label": "Reviewed local code, configuration, logs, and benchmark evidence",
         "path": "flow-comparison-report-artifact.json"
+      },
+      {
+        "id": "steady_c6_evidence",
+        "label": "Reviewed three-run steady C6 summary",
+        "path": "data/steady-c6-summary.csv"
+      },
+      {
+        "id": "nsight_evidence",
+        "label": "Normalized two-rank Nsight and RoCE summary",
+        "path": "data/nsight-summary.csv"
+      },
+      {
+        "id": "stock_evidence",
+        "label": "Stock vLLM nightly compatibility and throughput summary",
+        "path": "data/stock-nightly-summary.csv"
       }
     ],
     "blocks": [
       {
         "id": "title",
         "type": "markdown",
-        "body": "# DeepSeek V4 Flash Runtime and Format Findings\n\nAnemll 0.1.1, the vLLM 0.27 NVFP4/true-FP4 adaptation, and an aligned official FP8/MXFP4 control on 2× DGX Spark, TP=2."
+        "body": "# DeepSeek V4 Flash Runtime and Format Findings\n\nAnemll 0.1.1, stock vLLM nightly, the vLLM 0.27 NVFP4/true-FP4 adaptation, and an aligned official FP8/MXFP4 control on 2× DGX Spark, TP=2."
       },
       {
         "id": "executive_summary",
         "type": "markdown",
-        "sourceId": "reviewed_evidence",
-        "body": "## Technical summary\n\n**Anemll's `nvfp4_ds_mla` name hides a physically FP8 KV cache.** Its DeepSeek-V4 path stores 448 bytes of FP8 NoPE KV, 128 bytes of BF16 RoPE, and 8 bytes of UE8M0 scales—**584 bytes per token**—then calls the FP8 insert op and FlashMLA with `is_fp8_kvcache=True`. It is not an NVFP4 or four-bit KV layout.\n\n**The optimized official-checkpoint control is now in Anemll's C6 band.** Under matched 10-second warmup plus 180-second measurement, Anemll reached **106.07 output tok/s**. The `128×64/128-thread` bounded tile run reached **106.39 tok/s** (+0.31%); its repeat reached **104.94 tok/s** (-1.06%). The optimized two-run mean is **105.67 tok/s** (-0.38%).\n\n**Target compute is consistently faster, while speculative acceptance varies.** Estimated target-batch iteration time was 160.98 ms for Anemll and 160.35/159.38 ms for the optimized repeats. End-to-end output moved with output tokens per target iteration (2.85 for Anemll versus 2.84/2.79), so one repeat beating and one trailing Anemll is consistent with probabilistic MTP-5 acceptance noise rather than a target-kernel regression."
+        "body": "## Technical summary\n\n**Anemll's `nvfp4_ds_mla` name hides a physically FP8 KV cache.** Its DeepSeek-V4 path stores 448 bytes of FP8 NoPE KV, 128 bytes of BF16 RoPE, and 8 bytes of UE8M0 scales—**584 bytes per token**—then calls the FP8 insert op and FlashMLA with `is_fp8_kvcache=True`. It is not an NVFP4 or four-bit KV layout.\n\n**The optimized official-checkpoint control is now in Anemll's C6 band.** Under matched 10-second warmup plus 180-second measurement, Anemll reached **106.07 output tok/s**. The `128×64/128-thread` bounded tile run reached **106.39 tok/s** (+0.31%); its repeat reached **104.94 tok/s** (-1.06%). The optimized two-run mean is **105.67 tok/s** (-0.38%).\n\n**The full two-rank trace points to iteration and launch amplification, not RoCE bandwidth.** B12X accounts for about 51–53% of summed kernel duration. The NVFP4 trace launches 1.93× as many kernels as the official trace, while the 200 Gbit/s link carries only 2.46–3.08 Gbit/s per direction with no new congestion or reliability counters.\n\n**Stock nightly provides only a target-only baseline for this checkpoint.** Forced B12X is rejected and MTP-5 fails during DSpark sparse-MLA warmup. With MTP disabled, three hot C6×256 runs average **85.84 output tok/s**, versus **124.86 tok/s** for the adapted official MTP-5 lane. The 45.5% gap is a system/speculation result, not a B12X-versus-DeepGEMM single-kernel claim."
       },
       {
         "id": "metrics",
@@ -440,6 +611,42 @@
         "id": "official_control_table_block",
         "type": "table",
         "tableId": "official_control_detail",
+        "layout": "full"
+      },
+      {
+        "id": "two_rank_nsight_finding",
+        "type": "markdown",
+        "sourceId": "nsight_evidence",
+        "body": "## Full-chain Nsight points to work amplification, not a saturated interconnect\n\nAcross both ranks, B12X accounts for about **51–53%** of summed GPU-kernel duration. The NVFP4 profile launches **86,617 kernels per rank** versus **44,930** for the official profile (1.93×), and **1,204 B12X calls** versus **920** (1.31×). Its average B12X call is also 13.8% longer, but the checkpoints, routed rows, runtime family, and target/draft mix differ, so that per-call delta is an optimization lead rather than a causal A/B.\n\nGPU metrics are symmetric between ranks. Official/NVFP4 SM active is about 87%/81%, while SM issue is only 15%/11% and tensor active stays around 6%. RoCE moves only **3.08/2.46 Gbit/s per direction** on the 200 Gbit/s link, with zero deltas in the checked error, discard, ECN, CNP, retransmit, timeout, `port_xmit_wait`, and out-of-buffer counters."
+      },
+      {
+        "id": "nsight_kernel_detail_block",
+        "type": "table",
+        "tableId": "nsight_kernel_detail",
+        "layout": "full"
+      },
+      {
+        "id": "steady_c6_finding",
+        "type": "markdown",
+        "sourceId": "steady_c6_evidence",
+        "body": "## The adapted lanes retain higher usable throughput after profiling is removed\n\nThree hot short-prompt C6×256 runs average **124.86 output tok/s** for the adapted official MTP-5 lane, **106.42 tok/s** for the adapted NVFP4 MTP-5 lane, and **85.84 tok/s** for stock nightly serving the official checkpoint without MTP. The stock comparison is deliberately target-only because its MTP-5 path does not start. The resulting 45.5% adapted-official advantage is therefore a system/speculation result, not evidence that one MoE kernel is 45.5% faster than another."
+      },
+      {
+        "id": "steady_c6_chart_block",
+        "type": "chart",
+        "chartId": "steady_c6_comparison",
+        "layout": "full"
+      },
+      {
+        "id": "stock_nightly_finding",
+        "type": "markdown",
+        "sourceId": "stock_evidence",
+        "body": "## Stock nightly exposes two compatibility gaps before a matched MTP comparison is possible\n\nThe cached stock image is identical on both nodes and reports vLLM `0.27.2rc1.dev110+gacb0f1dcd` with FlashInfer 0.6.16.post3. Forced `flashinfer_b12x` is rejected by stock's MXFP4 backend oracle before weight loading. With `auto`, DeepGEMM MXFP4 loads the model, but MTP-5 DSpark sparse-MLA warmup sends `num_tokens=5` to a paged kernel that requires more than 64 tokens. Disabling MTP yields the stable target-only baseline above."
+      },
+      {
+        "id": "stock_compatibility_detail_block",
+        "type": "table",
+        "tableId": "stock_compatibility_detail",
         "layout": "full"
       },
       {
@@ -515,7 +722,7 @@
       {
         "id": "priorities",
         "type": "markdown",
-        "body": "## Next work should separate deterministic target speed from stochastic acceptance\n\n1. Keep legacy prefill chunking and the C6-bounded decode tile; both are opt-in and leave the default/current-B12X selector untouched.\n2. Repeat the 180-second pair with fixed or replayed speculative decisions if an acceptance-independent end-to-end comparison is required.\n3. Revalidate the container produced by the public Action because the formal benchmark used the locally cached nightly dependency image, while the Action defaults to the reproducible v0.27.1 manifest.\n4. Treat true FP4 MLA KV as a separate feature with its own 288-byte layout and performance target; do not use Anemll's `nvfp4_ds_mla` alias as evidence of an existing FP4 baseline.\n5. Preserve TP=2, C6, 6 GiB KV, the 108 GiB cgroup, 10 GiB reserve, and swap-growth guard for every follow-up."
+        "body": "## Next work should remove verification amplification before tuning the link\n\n1. Improve the NVFP4 checkpoint's draft acceptance or draft integration first; extra verification iterations multiply target, attention, routing, and collective work.\n2. Then isolate and optimize the NVFP4 target's small-M B12X path with a shape-aligned microbenchmark; keep legacy prefill chunking and the C6-bounded tile.\n3. Separate target and draft grids before reducing launch/routing overhead; the full NVFP4 trace contains nearly twice as many kernels.\n4. Add stock support for the official MXFP4-to-B12X mapping and fix the five-token DSpark sparse-MLA warmup before claiming a matched stock MTP comparison.\n5. Keep RoCE tuning as a reliability/latency guardrail unless a long-context or larger-batch trace shows material bandwidth pressure.\n6. Preserve TP=2, C6, 6 GiB KV, the 108 GiB cgroup, 10 GiB reserve, and swap-growth guard for every follow-up."
       },
       {
         "id": "further_questions",
@@ -525,18 +732,18 @@
       {
         "id": "limitations",
         "type": "markdown",
-        "body": "## Evidence boundaries and robustness checks\n\nThe KV-layout classification is code-backed from the exact cached Anemll image. The four formal hot values use matched GuideLLM 0.7.2 settings, the same two-node hardware, the official checkpoint, physical FP8 DS-MLA KV, B12X target/draft, low thinking, and zero request errors. Server logs prove route selection, graph prewarm, no measured-window JIT, and zero swap growth for the optimized repeats.\n\nThe optimized image passed legacy-B12X GPU correctness at M=1/36/1025 and CUDA-graph M=1/36, and the selector check proves the override stops at M=36. The two optimized repeats are still only two observations; the +0.31%/-1.06% aggregate spread does not establish a statistically significant end-to-end win. The formal runtime also used a cached nightly base without a public immutable RepoDigest, so a newly built release digest requires its own gate before inheriting the result."
+        "body": "## Evidence boundaries and robustness checks\n\nThe KV-layout classification is code-backed from the exact cached Anemll image. The four formal hot values use matched GuideLLM 0.7.2 settings, the same two-node hardware, the official checkpoint, physical FP8 DS-MLA KV, B12X target/draft, low thinking, and zero request errors. Server logs prove route selection, graph prewarm, no measured-window JIT, and zero swap growth for the optimized repeats.\n\nThe new Nsight application spans closely match client wall time and both ranks report nearly identical GPU metrics, but the official trace happened to have much better MTP acceptance than the NVFP4 trace. Trace output rates diagnose where each captured batch spent time; the separate three-run hot means are the throughput reference. The adapted-versus-stock comparison is also not backend-matched because stock cannot start the equivalent B12X/MTP-5 lane.\n\nThe optimized image passed legacy-B12X GPU correctness at M=1/36/1025 and CUDA-graph M=1/36, and the selector check proves the override stops at M=36. The two optimized 180-second repeats are still only two observations; the +0.31%/-1.06% aggregate spread does not establish a statistically significant end-to-end win."
       },
       {
         "id": "evidence",
         "type": "markdown",
-        "body": "## Reviewed evidence\n\n- Cached images: `ghcr.io/anemll/dspark-vllm-gx10:0.1.1` and optimized `infer-deploy/vllm:0.27.1-dsv4-nvfp4-ds-mla-sm121-b12x0153-tile128x64`.\n- Optimized source payload: vLLM `2db20513ab9d73e61aecabb3ab83e8f60644718e`, FlashInfer `6398edbbc6796d81781bd54827be860b65d8f38b`; both fork commits are public and fixed by the deployment source contract.\n- Official checkpoint revision: `9e165c30e2704aec5d9d593cce3eebd58bbef1cb`; NVFP4 revision: `4b15c44c31f8dacdf7b0c2fa42e20d03c5f5859b`.\n- Formal GuideLLM files: `anemll-hot-180s.json`, `legacy-b12x-chunk1024-hot-180s.json`, `legacy-b12x-tile128x64-hot-180s.json`, and `legacy-b12x-tile128x64-hot-180s-repeat.json`; machine-readable summary is in `data/benchmark-summary.csv`.\n- GPU validation: legacy-B12X numerical and CUDA-graph matrix passed 12 tests; the `128×64/128-thread` tile sweep measured 4.228 ms at routed M=36.\n- Memory evidence: both formal optimized runs retained 18/22 GiB host free memory and had zero swap growth under the runtime guard."
+        "body": "## Reviewed evidence\n\n- Cached images: `ghcr.io/anemll/dspark-vllm-gx10:0.1.1`, stock `vllm/vllm-openai:nightly` image ID `177a406d…`, and adapted image ID `cdeb2cea…`.\n- Adapted source payload: vLLM `2db20513ab9d73e61aecabb3ab83e8f60644718e`, FlashInfer `6398edbbc6796d81781bd54827be860b65d8f38b`; both fork commits are public and fixed by the deployment source contract.\n- Official checkpoint revision: `9e165c30e2704aec5d9d593cce3eebd58bbef1cb`; NVFP4 revision: `4b15c44c31f8dacdf7b0c2fa42e20d03c5f5859b`.\n- Formal GuideLLM values are normalized in `data/benchmark-summary.csv`; the new short-prompt hot means are in `data/steady-c6-summary.csv`.\n- Two-rank application/GPU-metric reports and RDMA counter deltas are normalized in `data/nsight-summary.csv`; raw profiler artifacts remain excluded from git.\n- Stock compatibility attempts and exact failure boundaries are in `data/stock-nightly-summary.csv`.\n- GPU validation: legacy-B12X numerical and CUDA-graph matrix passed 12 tests; the `128×64/128-thread` tile sweep measured 4.228 ms at routed M=36.\n- Every new run retained the 6 GiB KV, C6, 108 GiB no-swap cgroup, 10 GiB runtime reserve, and 512 MiB swap-growth stop; both services were stopped and host memory recovered after each lane."
       }
     ]
   },
   "snapshot": {
     "version": 1,
-    "generatedAt": "2026-08-20T21:00:00+08:00",
+    "generatedAt": "2026-08-21T12:52:00+08:00",
     "status": "ready",
     "datasets": {
       "summary": [
@@ -563,6 +770,23 @@
         {"order": 2, "runtime": "Current: chunk fix only", "output_tps": 104.349689, "accepted_tokens_per_iteration": 2.8084216, "iteration_time_ms": 161.481361, "tpot_ms": 57.562, "ttft_ms": 641.652, "request_errors": 0, "measurement_state": "Hot 180-second baseline"},
         {"order": 3, "runtime": "Current: tile run 1", "output_tps": 106.389486, "accepted_tokens_per_iteration": 2.843247, "iteration_time_ms": 160.349324, "tpot_ms": 56.4688, "ttft_ms": 638.124, "request_errors": 0, "measurement_state": "Hot 180-second optimized"},
         {"order": 4, "runtime": "Current: tile repeat", "output_tps": 104.943262, "accepted_tokens_per_iteration": 2.7877134, "iteration_time_ms": 159.384035, "tpot_ms": 57.2475, "ttft_ms": 624.206, "request_errors": 0, "measurement_state": "Hot 180-second optimized repeat"}
+      ],
+      "steady_c6": [
+        {"order": 1, "runtime": "Adapted official MTP-5", "checkpoint": "Official FP8/MXFP4", "mtp_tokens": 5, "backend": "B12X / B12X", "run1_output_tps": 127.539342, "run2_output_tps": 118.796223, "run3_output_tps": 128.250764, "output_tps": 124.862110},
+        {"order": 2, "runtime": "Adapted NVFP4 MTP-5", "checkpoint": "Abliterated NVFP4", "mtp_tokens": 5, "backend": "B12X / Marlin", "run1_output_tps": 105.691504, "run2_output_tps": 106.137235, "run3_output_tps": 107.421743, "output_tps": 106.416828},
+        {"order": 3, "runtime": "Stock official target-only", "checkpoint": "Official FP8/MXFP4", "mtp_tokens": 0, "backend": "DeepGEMM MXFP4 / none", "run1_output_tps": 85.889123, "run2_output_tps": 84.344072, "run3_output_tps": 87.276194, "output_tps": 85.836463}
+      ],
+      "nsight_kernel_detail": [
+        {"order": 1, "profile_rank": "Official / 0", "kernel_span_ms": 2411.802, "kernel_calls": 44930, "b12x_calls": 920, "b12x_total_ms": 1381.008, "b12x_avg_us": 1501.096, "nccl_total_ms": 229.193, "sm_active_pct": 86.64, "sm_issue_pct": 14.96, "tensor_active_pct": 6.05, "rdma_tx_gbps": 3.079, "rdma_error_delta": 0},
+        {"order": 2, "profile_rank": "Official / 1", "kernel_span_ms": 2411.382, "kernel_calls": 44930, "b12x_calls": 920, "b12x_total_ms": 1390.921, "b12x_avg_us": 1511.871, "nccl_total_ms": 201.909, "sm_active_pct": 86.86, "sm_issue_pct": 14.96, "tensor_active_pct": 6.05, "rdma_tx_gbps": 3.079, "rdma_error_delta": 0},
+        {"order": 3, "profile_rank": "NVFP4 / 0", "kernel_span_ms": 4176.575, "kernel_calls": 86617, "b12x_calls": 1204, "b12x_total_ms": 2056.594, "b12x_avg_us": 1708.134, "nccl_total_ms": 305.318, "sm_active_pct": 80.85, "sm_issue_pct": 10.56, "tensor_active_pct": 5.63, "rdma_tx_gbps": 2.458, "rdma_error_delta": 0},
+        {"order": 4, "profile_rank": "NVFP4 / 1", "kernel_span_ms": 4176.225, "kernel_calls": 86617, "b12x_calls": 1204, "b12x_total_ms": 2060.231, "b12x_avg_us": 1711.156, "nccl_total_ms": 352.094, "sm_active_pct": 80.91, "sm_issue_pct": 10.51, "tensor_active_pct": 5.58, "rdma_tx_gbps": 2.458, "rdma_error_delta": 0}
+      ],
+      "stock_compatibility": [
+        {"order": 1, "lane": "Forced B12X + MTP-5", "mtp_tokens": 5, "backend": "flashinfer_b12x", "result": "Failed before weight load", "steady_output_tps": null, "detail": "Stock MXFP4 oracle rejects flashinfer_b12x"},
+        {"order": 2, "lane": "Auto + MTP-5", "mtp_tokens": 5, "backend": "DeepGEMM MXFP4", "result": "Failed during warmup", "steady_output_tps": null, "detail": "DSpark num_tokens=5 reaches a paged kernel requiring >64"},
+        {"order": 3, "lane": "Stock auto, no MTP", "mtp_tokens": 0, "backend": "DeepGEMM MXFP4", "result": "Passed", "steady_output_tps": 85.836463, "detail": "Mean of three hot C6x256 runs"},
+        {"order": 4, "lane": "Adapted B12X + MTP-5", "mtp_tokens": 5, "backend": "B12X / B12X", "result": "Passed", "steady_output_tps": 124.862110, "detail": "System comparator; not a single-backend A/B"}
       ],
       "throughput_long": [
         {"concurrency": 1, "runtime": "Current true-FP4", "output_tps": 28.950856303614188, "accepted_tokens_per_iteration": 2.3705179282868527, "iterations_per_second": 12.212882239003632},
@@ -692,6 +916,42 @@
         "description": "Materializes the four 180-second aligned official-checkpoint C6 runs and the earlier four-point true-FP4 comparison with derived iteration rates; code-path claims were separately inspected in the exact cached container sources.",
         "executed_at": "2026-08-20T20:00:00+08:00",
         "sql": "WITH official(runtime,output_tps,accepted_tokens_per_iteration) AS (VALUES ('Anemll 0.1.1 reference',106.0658854,2.8457733),('Current chunk fix only',104.349689,2.8084216),('Current tile run 1',106.389486,2.843247),('Current tile repeat',104.943262,2.7877134)), legacy(concurrency,runtime,output_tps,accepted_tokens_per_iteration) AS (VALUES (1,'Current true-FP4',28.950856303614188,2.3705179282868527),(1,'Anemll original',41.26991839795751,2.7233009708737868),(2,'Current true-FP4',41.579833962439444,2.479557069846678),(2,'Anemll original',64.30259984361244,2.9286743515850144),(4,'Current true-FP4',51.21538447471522,2.4369747899159666),(4,'Anemll original',90.87452404234884,2.8875305623471887),(6,'Current true-FP4',61.736616798378535,2.323794382617912),(6,'Anemll original',108.18365943499163,2.895754359363153)) SELECT 'official_c6' AS dataset,runtime,output_tps,accepted_tokens_per_iteration,output_tps/accepted_tokens_per_iteration AS aggregate_iterations_per_second FROM official UNION ALL SELECT 'legacy_c' || concurrency,runtime,output_tps,accepted_tokens_per_iteration,output_tps/accepted_tokens_per_iteration FROM legacy"
+      }
+    },
+    {
+      "id": "steady_c6_evidence",
+      "label": "Reviewed three-run steady C6 summary",
+      "path": "data/steady-c6-summary.csv",
+      "query": {
+        "engine": "sqlite",
+        "language": "sql",
+        "description": "Materializes the three reviewed hot C6x256 runtime means from their individual run values.",
+        "executed_at": "2026-08-21T12:40:00+08:00",
+        "sql": "WITH runs(runtime,mtp_tokens,backend,run1,run2,run3) AS (VALUES ('Adapted official MTP-5',5,'B12X / B12X',127.539342,118.796223,128.250764),('Adapted NVFP4 MTP-5',5,'B12X / Marlin',105.691504,106.137235,107.421743),('Stock official target-only',0,'DeepGEMM MXFP4 / none',85.889123,84.344072,87.276194)) SELECT runtime,mtp_tokens,backend,run1,run2,run3,(run1+run2+run3)/3.0 AS output_tps FROM runs"
+      }
+    },
+    {
+      "id": "nsight_evidence",
+      "label": "Normalized two-rank Nsight and RoCE summary",
+      "path": "data/nsight-summary.csv",
+      "query": {
+        "engine": "sqlite",
+        "language": "sql",
+        "description": "Materializes the reviewed per-rank Nsight kernel, GPU-metric, and RoCE summary used by the report table.",
+        "executed_at": "2026-08-21T12:30:00+08:00",
+        "sql": "WITH profile(profile_rank,kernel_span_ms,kernel_calls,b12x_calls,b12x_total_ms,b12x_avg_us,nccl_total_ms,sm_active_pct,sm_issue_pct,tensor_active_pct,rdma_tx_gbps,rdma_error_delta) AS (VALUES ('Official / 0',2411.802,44930,920,1381.008,1501.096,229.193,86.64,14.96,6.05,3.079,0),('Official / 1',2411.382,44930,920,1390.921,1511.871,201.909,86.86,14.96,6.05,3.079,0),('NVFP4 / 0',4176.575,86617,1204,2056.594,1708.134,305.318,80.85,10.56,5.63,2.458,0),('NVFP4 / 1',4176.225,86617,1204,2060.231,1711.156,352.094,80.91,10.51,5.58,2.458,0)) SELECT * FROM profile"
+      }
+    },
+    {
+      "id": "stock_evidence",
+      "label": "Stock vLLM nightly compatibility and throughput summary",
+      "path": "data/stock-nightly-summary.csv",
+      "query": {
+        "engine": "sqlite",
+        "language": "sql",
+        "description": "Materializes the reviewed stock-nightly compatibility attempts and the adapted comparison lane.",
+        "executed_at": "2026-08-21T12:45:00+08:00",
+        "sql": "WITH attempts(lane,mtp_tokens,backend,result,steady_output_tps,detail) AS (VALUES ('Forced B12X + MTP-5',5,'flashinfer_b12x','Failed before weight load',NULL,'Stock MXFP4 oracle rejects flashinfer_b12x'),('Auto + MTP-5',5,'DeepGEMM MXFP4','Failed during warmup',NULL,'DSpark num_tokens=5 reaches a paged kernel requiring >64'),('Stock auto, no MTP',0,'DeepGEMM MXFP4','Passed',85.836463,'Mean of three hot C6x256 runs'),('Adapted B12X + MTP-5',5,'B12X / B12X','Passed',124.862110,'System comparator; not a single-backend A/B')) SELECT * FROM attempts"
       }
     }
   ]

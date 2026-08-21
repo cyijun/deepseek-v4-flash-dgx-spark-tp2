@@ -126,3 +126,51 @@ benchmark 期间必须保持 `runtime-guard.sh` 存活。冷启动后的第一�
 ```
 
 记录以下数据后再比较：checkpoint revision、image digest、两个 source label、KV bytes、prompt policy、target/draft backend、graph shapes、completed/in-flight/error request、output tok/s、output tok/target iteration、TPOT、TTFT 和 guard 最低内存。
+
+## 8. 双 rank Nsight Systems 采集
+
+只在模型已完成加载、JIT 和 CUDA graph warmup 后采集一个短 C6 batch。先在忽略提交的
+`config/deployment.env` 中设置两台机器都存在的绝对路径：
+
+```bash
+NSYS_OUTPUT_DIR=/absolute/path/to/repo/profiles/nsys-official-c6
+NSYS_HOST_ROOT=/opt/nvidia/nsight-systems/2025.3.2
+NSYS_SESSION_PREFIX=officialc6
+```
+
+按 checkpoint 使用 `deploy-official.sh` 或 `deploy-nvfp4.sh`。此时 vLLM 位于 delayed
+Nsight session 中，未调用 capture 脚本前不会记录应用 trace。先完成一次不采集的 API
+warmup，再启动同步采集：
+
+```bash
+./scripts/nsys-capture.sh \
+  python3 ./scripts/nsys-c6-workload.py \
+  --model deepseek-v4-flash-0731-vllm027 \
+  --concurrency 6 \
+  --max-tokens 64 \
+  --output profiles/nsys-official-c6/workload.json
+```
+
+脚本同时启动两端应用 CUDA/NVTX trace、1 kHz host GPU metrics，并在 workload 前后读取
+RDMA port、mlx5 hardware 和 netdev sysfs counter。两端 `sudo -n nsys` 必须已配置；原始
+`.nsys-rep`/SQLite 很大，只保存在 git 忽略的 `profiles/`。归一化结果见
+[`data/nsight-summary.csv`](../data/nsight-summary.csv) 和
+[双 rank Nsight 报告](nsight-profile.zh-CN.md)。
+
+正常部署必须将 `NSYS_OUTPUT_DIR` 留空，以免引入 profiler 开销。
+
+## 9. 原版 vLLM nightly 诊断基线
+
+此脚本用于判断 stock nightly 的兼容边界，不是第三种受支持部署 profile。它仍会执行相同的
+镜像一致性、110 GiB 启动门槛、108 GiB no-swap cgroup、6 GiB KV 和 C6 限制：
+
+```bash
+STOCK_NIGHTLY_IMAGE=vllm/vllm-openai:nightly \
+STOCK_MTP_NUM_TOKENS=0 \
+  ./scripts/deploy-stock-nightly.sh
+```
+
+当前缓存版本的 MTP-5 DSpark sparse-MLA warmup 会失败，所以可复现的 stock 性能基线必须
+显式设为 `STOCK_MTP_NUM_TOKENS=0`。它会由 `auto` 选择 DeepGEMM MXFP4；不要把其
+target-only 吞吐与适配版 MTP-5 的差值解释成单个 MoE backend 的因果收益。精确结果见
+[`data/stock-nightly-summary.csv`](../data/stock-nightly-summary.csv)。

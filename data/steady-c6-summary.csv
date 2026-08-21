@@ -1,0 +1,4 @@
+runtime,checkpoint,mtp,target_backend,draft_backend,run1_output_tok_s,run2_output_tok_s,run3_output_tok_s,mean_output_tok_s,comparison_scope
+adapted-official,deepseek-ai/DeepSeek-V4-Flash-0731,5,flashinfer_b12x,flashinfer_b12x,127.539342,118.796223,128.250764,124.862110,Same adapted image and short-prompt C6x256 workload; official checkpoint
+adapted-nvfp4,sakamakismile/DeepSeek-V4-Flash-0731-Abliterated-NVFP4,5,flashinfer_b12x,marlin,105.691504,106.137235,107.421743,106.416828,Same adapted image and short-prompt C6x256 workload; different checkpoint and draft acceptance
+stock-official,deepseek-ai/DeepSeek-V4-Flash-0731,0,auto/DEEPGEMM_MXFP4,none,85.889123,84.344072,87.276194,85.836463,Same short-prompt C6x256 workload; stock MTP-5 failed startup so this is target-only

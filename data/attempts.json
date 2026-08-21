@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-08-20T20:00:00+08:00",
+  "updated_at": "2026-08-21T12:52:00+08:00",
   "hardware": "2x NVIDIA DGX Spark / GB10 / SM121",
   "serving_envelope": {
     "tensor_parallel": 2,
@@ -139,6 +139,33 @@
       "change": "Applied the validated 128x64/128-thread W4A16 tile only for legacy b12x problem M at or below 36.",
       "result": "Two 180-second C6 runs reached 106.389 and 104.943 output tok/s. Their estimated target batch iterations were 160.35 and 159.38 ms versus Anemll's 160.98 ms; all runs had zero request errors.",
       "decision": "Retain commit 2db2051 and the M-bounded official preset. Target compute is consistently faster; report output throughput as the same performance band because probabilistic MTP acceptance varied between runs."
+    },
+    {
+      "id": "two-rank-nsight-c6",
+      "date": "2026-08-21",
+      "status": "completed",
+      "category": "profiling",
+      "change": "Captured one synchronized C6 batch on both TP ranks for the adapted official and NVFP4 profiles, with delayed CUDA/NVTX traces, 1 kHz host GPU metrics, and before/after RDMA sysfs counters.",
+      "result": "B12X accounted for 51-53% of summed kernel duration. NVFP4 launched 1.93x as many kernels and 1.31x as many B12X kernels; SM issue was 10.5-15.0%. RoCE used 2.46-3.08 Gbit/s per direction on the 200 Gbit/s link and no checked congestion or reliability counter increased.",
+      "decision": "Prioritize draft acceptance and small-M target/launch efficiency. Do not treat link bandwidth or OFED replacement as the first throughput action."
+    },
+    {
+      "id": "stock-nightly-official-tp2",
+      "date": "2026-08-21",
+      "status": "completed-with-limitations",
+      "category": "end-to-end-control",
+      "change": "Ran the cached unmodified vLLM nightly image on the official checkpoint under the same TP=2, C6, 6 GiB KV, and unified-memory safety envelope.",
+      "result": "Forced B12X was rejected by the MXFP4 backend oracle. Auto plus MTP-5 failed DSpark sparse-MLA warmup at num_tokens=5. Auto without MTP served successfully and averaged 85.836 output tok/s across three hot C6x256 runs.",
+      "decision": "Keep the stock result as a target-only compatibility baseline. The adapted official MTP-5 mean of 124.862 output tok/s is 45.5% higher on this workload, but the difference is system-level and cannot isolate B12X from DeepGEMM."
+    },
+    {
+      "id": "nsight-ofed-audit",
+      "date": "2026-08-21",
+      "status": "completed",
+      "category": "platform",
+      "change": "Audited the installed Nsight Systems and RDMA stack against NVIDIA's DGX Spark and DGX OS documentation.",
+      "result": "Both nodes run Nsight Systems 2025.3.2 and can use a newer Linux Arm Server/Grace standalone build. DGX Spark uses inbox OFED 50.0-2; DOCA-OFED is unsupported, so Nsight's unavailable native NIC panel is not evidence of broken RDMA.",
+      "decision": "A standalone Nsight upgrade is optional after preserving the baseline. Do not replace the supported inbox mlx5/RDMA stack merely to enable the profiler NIC panel; use sysfs counters instead."
     },
     {
       "id": "pipeline-parallel-branch",

@@ -16,6 +16,20 @@ SSH 启动和管理 worker 上的 rank 1。
 > 都不少于 110 GiB 时才能启动，启动后必须持续运行内存保护器。已验证配置仅支持
 > C6，每节点 KV cache 为 6 GiB。放宽这些限制可能导致两台主机失去响应。
 
+### 支持的两种 checkpoint
+
+同一个已发布镜像同时支持 **原版官方 checkpoint** 和 **NVFP4 checkpoint**。请为所用
+checkpoint 选择对应的启动脚本，不要混用两套 profile 的 KV 布局或量化参数。
+
+| Profile | 模型权重 | MLA KV cache | 专家计算 | 启动脚本 |
+| --- | --- | --- | --- | --- |
+| 原版 / 官方 | `deepseek-ai/DeepSeek-V4-Flash-0731`：FP8 dense/linear 权重和原生 MXFP4 routed experts | `fp8_ds_mla`，物理 FP8 布局，584 B/token | target 和 draft 均为 B12X W4A16 | [`deploy-official.sh`](scripts/deploy-official.sh) |
+| NVFP4 | 具有完整 MTP 结构和量化元数据的 DeepSeek-V4-Flash 同结构 NVFP4 checkpoint | `nvfp4_ds_mla`，真实 packed NVFP4 布局，288 B/token | target 为 B12X W4A16；draft 默认为 Marlin，可切换 B12X | [`deploy-nvfp4.sh`](scripts/deploy-nvfp4.sh) |
+
+NVFP4 profile 中的权重仍以 packed NVFP4 形式存储，已验证的小 M decode 路径则以 W4A16
+执行 target experts。这一路径在 C6 下实测比动态 W4A4 更快，但不会把 checkpoint 或
+288-byte KV 物理布局变成 FP16。
+
 ### 1. 准备条件
 
 - 两台位于同一 RoCEv2 网络的 aarch64 DGX Spark；
@@ -72,6 +86,8 @@ ssh "$WORKER_HOST" docker pull "$IMAGE"
 ```
 
 ### 3. 启动 TP=2
+
+请在以下两种 checkpoint profile 中二选一。
 
 对于官方 DeepSeek-V4-Flash checkpoint，使用物理 FP8 DS-MLA KV，target/draft 专家均为
 B12X W4A16：

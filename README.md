@@ -18,6 +18,22 @@ the head node; the scripts start and manage rank 1 over SSH.
 > 6 GiB KV cache per node. Raising these limits can make both hosts
 > unresponsive.
 
+### Two supported checkpoint variants
+
+The same published image supports both the **original official checkpoint**
+and an **NVFP4 checkpoint**. Select the matching launcher; do not mix one
+checkpoint's KV layout or quantization settings with the other profile.
+
+| Profile | Model weights | MLA KV cache | Expert execution | Launcher |
+| --- | --- | --- | --- | --- |
+| Original / official | `deepseek-ai/DeepSeek-V4-Flash-0731`: FP8 dense/linear weights and native MXFP4 routed experts | `fp8_ds_mla`, physical FP8 layout, 584 B/token | B12X W4A16 target and draft | [`deploy-official.sh`](scripts/deploy-official.sh) |
+| NVFP4 | DeepSeek-V4-Flash-compatible NVFP4 checkpoint, including its MTP structure and quantization metadata | `nvfp4_ds_mla`, real packed NVFP4 layout, 288 B/token | B12X W4A16 target; Marlin draft by default, optionally B12X | [`deploy-nvfp4.sh`](scripts/deploy-nvfp4.sh) |
+
+For the NVFP4 profile, the weights remain packed in NVFP4 storage while the
+validated small-M decode path executes target experts as W4A16. This was
+measured faster than dynamic W4A4 at C6; it does not turn the checkpoint or
+the 288-byte KV layout into FP16.
+
 ### 1. Prerequisites
 
 - Two aarch64 DGX Spark systems on the same RoCEv2 network;
@@ -76,6 +92,8 @@ ssh "$WORKER_HOST" docker pull "$IMAGE"
 ```
 
 ### 3. Start TP=2
+
+Choose exactly one of the following checkpoint profiles.
 
 For the official DeepSeek-V4-Flash checkpoint with physical FP8 DS-MLA KV and
 B12X W4A16 target/draft experts:

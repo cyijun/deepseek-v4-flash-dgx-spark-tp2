@@ -1,41 +1,214 @@
 # DeepSeek V4 Flash on 2× DGX Spark
 
+**English** | [简体中文](README.zh-CN.md)
+
 [![Validate repository](https://github.com/cyijun/deepseek-v4-flash-dgx-spark-tp2/actions/workflows/validate.yml/badge.svg)](https://github.com/cyijun/deepseek-v4-flash-dgx-spark-tp2/actions/workflows/validate.yml)
 [![Package ARM64 runtime](https://github.com/cyijun/deepseek-v4-flash-dgx-spark-tp2/actions/workflows/build-container.yml/badge.svg)](https://github.com/cyijun/deepseek-v4-flash-dgx-spark-tp2/actions/workflows/build-container.yml)
 
-在两台 NVIDIA DGX Spark（GB10 / SM121）上以 **TP=2、PP=1** 部署 DeepSeek-V4-Flash 的可复现工程。仓库包含：
+## Deployment guide
 
-- 基于 vLLM 0.27.1 的 ARM64 容器打包 Action；
-- 面向 RoCE 双机 TP=2 的启动、监控和停止脚本；
-- 官方 FP8/MXFP4 checkpoint 与 NVFP4 checkpoint 两套 preset；
-- 真实 packed NVFP4 DS-MLA KV cache、FlashInfer B12X MoE 的源码契约；
-- 从 mock bring-up 到完整 48-shard checkpoint 的结构化实验记录；
-- 与 Anemll `dspark-vllm-gx10` 记录的性能对比和负面结果。
+This repository deploys DeepSeek-V4-Flash across exactly **two NVIDIA DGX
+Spark systems (GB10 / SM121) with TP=2 and PP=1**. Run the commands below on
+the head node; the scripts start and manage rank 1 over SSH.
 
-模型权重、Hugging Face token、机器日志、原始 profiler trace 和容器 inspect dump不进入本仓库。
+> [!CAUTION]
+> DGX Spark uses unified CPU/GPU memory. Do not start the service unless both
+> nodes have at least 110 GiB of `MemAvailable`, and keep the runtime guard
+> running after startup. The validated configuration is limited to C6 and a
+> 6 GiB KV cache per node. Raising these limits can make both hosts
+> unresponsive.
 
-## 当前结论
+### 1. Prerequisites
 
-1. 完整 48-shard NVFP4 checkpoint 已在双机 TP=2 跑通，target 使用 FlashInfer B12X，KV 使用真实 288-byte packed NVFP4 DS-MLA row。
-2. NVFP4 权重不代表 decode 阶段必须 W4A4。当前 C6 小 M 场景中，保留 packed NVFP4 权重但用 B12X W4A16 计算比动态 W4A4 更快。
-3. 最新的 180 秒 official-checkpoint C6 对照中，定制 runtime 首跑达到 **106.39 output tok/s**，高于 Anemll 的 **106.07 tok/s**；复跑为 **104.94 tok/s**。两次计算迭代率均更快，端到端差异主要由 speculative acceptance 波动决定。
-4. 关键修复是把 b12x 0.15.3 的大 prefill launch 分块到 1024 routed rows，并在 C6 decode 的 M≤36 范围使用实测更快的 `128×64/128-thread` W4A16 tile。新 tile 两次 estimated target batch iteration 分别为 160.35 ms 和 159.38 ms，Anemll 为 160.98 ms。
-5. phase-aligned profile 中，当前 B12X、MHC 和 sparse MLA decode kernel 并不慢于 Anemll。shared-expert route 的两次 `torch.cat` 也已消除，路由微基准降低约 59%。
+- Two aarch64 DGX Spark systems on the same RoCEv2 network;
+- Ubuntu 24.04, Docker, NVIDIA Container Toolkit, and `/dev/infiniband` on both
+  nodes;
+- passwordless SSH from the head to the worker, with permission to run Docker;
+- the same immutable Hugging Face model snapshot at the same absolute path on
+  both nodes, containing `config.json` and 48 `model*.safetensors` shards;
+- at least 110 GiB of `MemAvailable` on each node before startup.
 
-完整证据见 [HTML 技术报告](reports/flow-comparison-report.html)、[实验时间线](docs/experiments.md) 和 [机器可读尝试记录](data/attempts.json)。
+Do not deploy while another model server, image build, or other memory-heavy
+job is running. Verify both hosts first:
 
-## 源码联动
+```bash
+awk '/MemAvailable|SwapTotal|SwapFree/ {print}' /proc/meminfo
+ssh user@dgx-spark-worker.local \
+  "awk '/MemAvailable|SwapTotal|SwapFree/ {print}' /proc/meminfo
+docker ps
+ssh user@dgx-spark-worker.local docker ps
+```
 
-部署仓库不复制维护定制框架源码，而是在构建时 checkout 以下固定 commit：
+### 2. Clone and configure
 
-- vLLM：[cyijun/vllm@2db2051](https://github.com/cyijun/vllm/commit/2db20513ab9d73e61aecabb3ab83e8f60644718e)
-  （[开发分支](https://github.com/cyijun/vllm/tree/feat/deepseek-v4-nvfp4-ds-mla)）
-- FlashInfer：[cyijun/flashinfer@6398edb](https://github.com/cyijun/flashinfer/commit/6398edbbc6796d81781bd54827be860b65d8f38b)
-  （[开发分支](https://github.com/cyijun/flashinfer/tree/agent/apply-swiglu-limit-to-silu-b12x)）
+```bash
+git clone https://github.com/cyijun/deepseek-v4-flash-dgx-spark-tp2.git
+cd deepseek-v4-flash-dgx-spark-tp2
+cp config/deployment.env.example config/deployment.env
+$EDITOR config/deployment.env
+```
 
-完整 commit 角色和回退尝试见 [源码版本契约](docs/source-contract.md)。固定版本保存在 [config/versions.env](config/versions.env)，容器 image label 也记录两个 commit，部署前会在两台机器上校验。
+At minimum, set the following values in `config/deployment.env`:
 
-## 执行拓扑
+| Variable | Meaning |
+| --- | --- |
+| `WORKER_HOST` | Passwordless SSH target for the worker |
+| `HEAD_IP`, `WORKER_IP` | RoCEv2 addresses used by distributed vLLM |
+| `NIC`, `HCA` | RoCE network interface and RDMA device |
+| `MODEL_REPO` | Identical Hugging Face cache repository root on both nodes |
+| `MODEL_REV` | Immutable snapshot commit; required by the NVFP4 preset |
+| `IMAGE` | The immutable GHCR image digest below |
+
+The checked-in template already pins the validated memory limits and image:
+
+```text
+IMAGE=ghcr.io/cyijun/deepseek-v4-flash-dgx-spark-tp2@sha256:f9724fb4a7feef44b83f32c10bc8826153eb2da000d1a0e5767f547c771cf444
+PULL_IMAGE=1
+```
+
+With `PULL_IMAGE=1`, the deployment script pulls this ARM64 image on both
+nodes. To pull it manually:
+
+```bash
+source config/deployment.env
+docker pull "$IMAGE"
+ssh "$WORKER_HOST" docker pull "$IMAGE"
+```
+
+### 3. Start TP=2
+
+For the official DeepSeek-V4-Flash checkpoint with physical FP8 DS-MLA KV and
+B12X W4A16 target/draft experts:
+
+```bash
+MODEL_REPO=/same/path/on/both/nodes/models--deepseek-ai--DeepSeek-V4-Flash-0731 \
+  ./scripts/deploy-official.sh
+```
+
+`deploy-official.sh` defaults to the validated snapshot revision
+`9e165c30e2704aec5d9d593cce3eebd58bbef1cb`.
+
+For an NVFP4 checkpoint with packed NVFP4 DS-MLA KV and a B12X W4A16 target:
+
+```bash
+MODEL_REPO=/same/path/on/both/nodes/models--owner--nvfp4-model \
+MODEL_REV=<immutable-snapshot-commit> \
+  ./scripts/deploy-nvfp4.sh
+```
+
+Preflight checks reject mismatched shards, source labels, inactive RoCE links,
+insufficient free memory, or stale containers. Startup can take up to 30
+minutes on a cold JIT cache. On failure, bounded diagnostics are saved under
+`logs/` and both containers are removed.
+
+### 4. Keep the memory guard running
+
+As soon as deployment reports healthy, keep this command running in a separate
+terminal or under a supervisor such as `tmux`:
+
+```bash
+./scripts/runtime-guard.sh
+```
+
+The guard checks both nodes every two seconds. It captures logs and stops both
+containers if `MemAvailable` drops below 10 GiB or swap grows by more than 512
+MiB. The containers also have a hard 108 GiB memory/no-swap cgroup limit.
+
+### 5. Verify the API
+
+```bash
+./scripts/status.sh
+curl --fail http://127.0.0.1:8888/health
+curl http://127.0.0.1:8888/v1/models
+```
+
+Official-checkpoint smoke test:
+
+```bash
+curl http://127.0.0.1:8888/v1/chat/completions \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "model": "deepseek-v4-flash-0731-vllm027",
+    "messages": [{"role": "user", "content": "Explain tensor parallelism briefly."}],
+    "max_tokens": 64,
+    "temperature": 0
+  }'
+```
+
+For the NVFP4 preset, use `deepseek-v4-flash-nvfp4`, or the value returned by
+`/v1/models` if `SERVED_MODEL` was overridden.
+
+### 6. Stop cleanly
+
+```bash
+./scripts/stop.sh
+./scripts/status.sh
+```
+
+The validated safety envelope is TP=2, PP=1, maximum concurrency C6, maximum
+model length 4096, and a fixed 6 GiB KV cache per node. See the
+[unified-memory safety policy](docs/memory-safety.md) before changing any of
+these limits.
+
+## What this repository contains
+
+This is a reproducible deployment and experiment repository for
+DeepSeek-V4-Flash on two NVIDIA DGX Spark systems. It includes:
+
+- an ARM64 container workflow based on vLLM 0.27.1;
+- RoCE-aware TP=2 start, status, stop, and memory-guard scripts;
+- presets for the official FP8/MXFP4 and custom NVFP4 checkpoints;
+- source contracts for packed NVFP4 DS-MLA KV and FlashInfer B12X MoE;
+- a structured history from mock-model bring-up to the complete 48-shard
+  checkpoint;
+- performance comparisons and negative results against Anemll
+  `dspark-vllm-gx10`.
+
+Model weights, Hugging Face tokens, host logs, raw profiler traces, and Docker
+inspect dumps are intentionally excluded.
+
+## Current findings
+
+1. The complete 48-shard NVFP4 checkpoint runs successfully with TP=2. The
+   target uses FlashInfer B12X, and KV uses a real packed 288-byte NVFP4 DS-MLA
+   row.
+2. NVFP4 storage does not require W4A4 execution during decode. At C6 and small
+   M, retaining packed NVFP4 weights while using B12X W4A16 was faster than
+   dynamic W4A4.
+3. In the latest 180-second official-checkpoint C6 comparison, the customized
+   runtime reached **106.39 output tok/s** on its first run versus Anemll's
+   **106.07 tok/s**; the repeat reached **104.94 tok/s**. Target compute was
+   faster in both runs, while end-to-end variation was dominated by
+   speculative acceptance.
+4. The main fixes chunk b12x 0.15.3 large-prefill launches to 1,024 routed rows
+   and use the measured-faster `128×64/128-thread` W4A16 tile for C6 decode at
+   M≤36. Estimated target batch iterations were 160.35 ms and 159.38 ms versus
+   Anemll's 160.98 ms.
+5. Phase-aligned profiles show that the current B12X, MHC, and sparse MLA
+   decode kernels are not slower than Anemll's. Removing two `torch.cat`
+   operations from shared-expert routing reduced the routing microbenchmark by
+   about 59%.
+
+See the [HTML technical report](reports/flow-comparison-report.html),
+[experiment timeline](docs/experiments.md), and
+[machine-readable attempt log](data/attempts.json) for the evidence.
+
+## Source linkage
+
+This repository does not duplicate the customized framework sources. The
+container build checks out these immutable commits:
+
+- vLLM: [cyijun/vllm@2db2051](https://github.com/cyijun/vllm/commit/2db20513ab9d73e61aecabb3ab83e8f60644718e)
+  ([development branch](https://github.com/cyijun/vllm/tree/feat/deepseek-v4-nvfp4-ds-mla));
+- FlashInfer: [cyijun/flashinfer@6398edb](https://github.com/cyijun/flashinfer/commit/6398edbbc6796d81781bd54827be860b65d8f38b)
+  ([development branch](https://github.com/cyijun/flashinfer/tree/agent/apply-swiglu-limit-to-silu-b12x)).
+
+The exact roles and fallback attempts are documented in the
+[source-version contract](docs/source-contract.md). Pinned versions live in
+[`config/versions.env`](config/versions.env), and the deploy preflight checks
+the corresponding image labels on both nodes.
+
+## Runtime topology
 
 ```mermaid
 flowchart LR
@@ -49,104 +222,48 @@ flowchart LR
   G --> W
 ```
 
-两台机器必须拥有相同模型 snapshot revision 和相同镜像。模型缓存是节点本地路径，不是假定的共享文件系统。
+Each node uses its own local model cache; no shared filesystem is assumed.
 
-## 快速开始
+## Building the image
 
-### 1. 配置节点和模型
+Run the **Package ARM64 runtime** workflow to prepare and validate the
+deterministic build context. Standard `ubuntu-24.04-arm` runners only have 14
+GB of disk, while the base and final images expand to approximately 20.6 and
+22.3 GB. The full Docker build therefore requires the trusted self-hosted DGX
+Spark runner or an ARM larger runner with at least 150 GB of storage.
 
-```bash
-cp config/deployment.env.example config/deployment.env
-$EDITOR config/deployment.env
-```
-
-启动前脚本要求两端：
-
-- `MemAvailable >= 110 GiB`；
-- 相同的 48 个 weight shard 和 snapshot revision；
-- RoCEv2 链路为 `ACTIVE`；
-- 镜像内 vLLM / FlashInfer commit 与版本契约一致；
-- 没有同名残留容器。
-
-### 2. 获取镜像
-
-推荐从 GitHub 的 **Package ARM64 runtime** workflow 手动构建并推送 GHCR，然后将不可变 digest 写入 `config/deployment.env`。workflow 用标准 `ubuntu-24.04-arm` 准备并校验确定性 build context；`prepare_only=true` 可只生成该 artifact。完整 Docker build 仍使用受信任的自托管 DGX Spark runner，因为标准云 ARM runner 只有 14 GB 磁盘，而当前 base/final image 解压后约为 20.6/22.3 GB。组织版 4-core/150 GB ARM larger runner也可替代自托管 build job。
-
-当前已验证并公开发布的 benchmark runtime：
-
-```bash
-docker pull ghcr.io/cyijun/deepseek-v4-flash-dgx-spark-tp2@sha256:f9724fb4a7feef44b83f32c10bc8826153eb2da000d1a0e5767f547c771cf444
-```
-
-可读 tag 为 `vllm027-sm121-b12x0153-tile128x64`；部署应优先使用上面的 immutable digest。该镜像对应本地缓存的 vLLM nightly dependency base、vLLM source `2db2051`、FlashInfer `6398edb` 和 B12X runtime `0.15.3-anemll`。
-
-本机构建：
+To build locally from the pinned forks:
 
 ```bash
 ./scripts/build-image.sh
 ```
 
-该脚本会从你的两个 fork 拉取固定 commit。也可以通过 `VLLM_SOURCE` 和 `FLASHINFER_SOURCE` 指向已有的干净 checkout。
+Existing clean checkouts can be supplied with `VLLM_SOURCE` and
+`FLASHINFER_SOURCE`.
 
-### 3. 启动 TP=2
+## Repository layout
 
-官方 checkpoint，物理 FP8 DS-MLA KV，target/draft 均为 B12X W4A16：
-
-```bash
-MODEL_REPO=/path/to/official/cache ./scripts/deploy-official.sh
-```
-
-NVFP4 checkpoint，packed NVFP4 DS-MLA KV，B12X W4A16 target：
-
-```bash
-MODEL_REPO=/path/to/nvfp4/cache \
-MODEL_REV=<snapshot-commit> \
-./scripts/deploy-nvfp4.sh
-```
-
-服务健康后，另开终端持续运行保护器：
-
-```bash
-./scripts/runtime-guard.sh
-```
-
-停止：
-
-```bash
-./scripts/stop.sh
-```
-
-## 不可放宽的容量边界
-
-- TP=2，PP=1；
-- 最大并发 C6，不支持 C128；
-- 固定 6 GiB KV cache / node；
-- Docker `--memory 108g --memory-swap 108g`；
-- 运行时 `MemAvailable` 不得低于 10 GiB；
-- 相对启动基线 swap 增长不得超过 512 MiB。
-
-DGX Spark 的 GPU 和 CPU 共用系统 DRAM。`nvidia-smi` 的传统显存视图不能替代 `/proc/meminfo` 和 cgroup 保护。详见 [统一内存安全策略](docs/memory-safety.md)。
-
-## 仓库结构
-
-| 路径 | 内容 |
+| Path | Purpose |
 | --- | --- |
-| `.github/workflows/build-container.yml` | 云 ARM runner 打包源码上下文，自托管/large ARM runner 构建、签名并推送 GHCR |
-| `container/` | 基于 vLLM 0.27.1 ARM64 镜像的源码 overlay 配方 |
-| `scripts/` | 构建、TP=2 部署、运行保护、诊断和微基准 |
-| `config/` | 固定源码版本和本地部署配置模板 |
-| `data/` | 尝试状态、benchmark 汇总、phase-aligned profile 数据 |
-| `docs/` | 架构、实验时间线、版本契约、安全和复现说明 |
-| `reports/` | 自包含 HTML 技术报告及其 source artifact |
+| `.github/workflows/build-container.yml` | Prepare the ARM64 context, build, sign, and publish GHCR images |
+| `container/` | Source-overlay recipe based on the vLLM 0.27.1 ARM64 image |
+| `scripts/` | Build, TP=2 deployment, runtime guard, diagnostics, and microbenchmarks |
+| `config/` | Pinned source versions and the local deployment template |
+| `data/` | Attempt status, benchmark summaries, and phase-aligned profiles |
+| `docs/` | Architecture, experiment timeline, source contract, safety, and reproduction notes |
+| `reports/` | Self-contained HTML technical report and source artifact |
 
-## 文档入口
+## Documentation
 
-- [推理与构建架构](docs/architecture.md)
-- [完整实验过程](docs/experiments.md)
-- [源码版本契约](docs/source-contract.md)
-- [统一内存安全策略](docs/memory-safety.md)
-- [端到端复现步骤](docs/reproduction.md)
+- [Inference and build architecture](docs/architecture.md)
+- [Complete experiment history](docs/experiments.md)
+- [Source-version contract](docs/source-contract.md)
+- [Unified-memory safety policy](docs/memory-safety.md)
+- [End-to-end reproduction](docs/reproduction.md)
 
-## 适用范围
+## Scope
 
-这是针对 DGX Spark / SM121 / 双机 RoCE TP=2 的工程记录，不是 vLLM 或 FlashInfer 上游支持声明。报告中的跨 runtime 数字是系统级对照，不是单 kernel 因果 A/B。
+This is an engineering record for DGX Spark, SM121, two-node RoCE, and TP=2;
+it is not an upstream support statement from vLLM or FlashInfer. Cross-runtime
+numbers in the report are system-level comparisons, not single-kernel causal
+A/B tests.
